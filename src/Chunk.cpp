@@ -1,16 +1,33 @@
 #include "Chunk.hpp"
 #include <iostream>
+#include "FastNoiseLite.h"
 
 Chunk::Chunk() {
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
     glGenBuffers(1, &EBO);
 
-    // Inizializzazione ignorante del terreno (piano piatto a metà altezza)
-    for (auto & block : blocks) {
+    FastNoiseLite noise;
+    noise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2); // Più fluido del Perlin classico
+    noise.SetFrequency(0.05f); // Più basso è, più le colline sono "dolci"
+
+    for (int x = 0; x < SIZE; x++) {
         for (int z = 0; z < SIZE; z++) {
-            for (int y = 0; y < SIZE; y++) {
-                block[y][z] = (y < 8) ? 1 : 0;
+            // Generiamo un'altezza basata sulle coordinate x e z del mondo
+            // noise.GetNoise restituisce un valore tra -1 e 1
+            float noiseValue = noise.GetNoise((float)x, (float)z);
+
+            // Mappiamo il noise su un'altezza tra 4 e 12 (su un chunk alto 16)
+            int terrainHeight = static_cast<int>((noiseValue + 1.0f) * 4.0f + 4.0f);
+
+            for (int y = 0; y < HEIGHT; y++) {
+                if (y < terrainHeight) {
+                    blocks[x][y][z] = 1; // Terra
+                } else if (y == terrainHeight) {
+                    blocks[x][y][z] = 1; // Per ora mettiamo terra anche sopra
+                } else {
+                    blocks[x][y][z] = 0; // Aria
+                }
             }
         }
     }
