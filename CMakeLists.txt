@@ -39,6 +39,8 @@ set(SOURCES
         src/main.cpp
         src/Shader.cpp
         src/Camera.cpp
+        src/stb_setup.cpp
+
 )
 # --- TARGET FINALE ---
 
