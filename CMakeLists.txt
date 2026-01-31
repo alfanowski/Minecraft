@@ -40,7 +40,7 @@ set(SOURCES
         src/Shader.cpp
         src/Camera.cpp
         src/stb_setup.cpp
-
+        src/Chunk.cpp
 )
 # --- TARGET FINALE ---
 
