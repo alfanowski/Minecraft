@@ -30,7 +30,7 @@ Shader::Shader(const char* vertexPath, const char* fragmentPath) {
     }
 
     const char* vShaderCode = vertexCode.c_str();
-    const char* fShaderCode = fragmentCode.size() > 0 ? fragmentCode.c_str() : "";
+    const char* fShaderCode = !fragmentCode.empty() ? fragmentCode.c_str() : "";
 
     unsigned int vertex, fragment;
     int success;
@@ -38,21 +38,21 @@ Shader::Shader(const char* vertexPath, const char* fragmentPath) {
 
     // Vertex Shader
     vertex = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vertex, 1, &vShaderCode, NULL);
+    glShaderSource(vertex, 1, &vShaderCode, nullptr);
     glCompileShader(vertex);
     glGetShaderiv(vertex, GL_COMPILE_STATUS, &success);
     if (!success) {
-        glGetShaderInfoLog(vertex, 512, NULL, infoLog);
+        glGetShaderInfoLog(vertex, 512, nullptr, infoLog);
         std::cerr << "ERRORE::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
     }
 
     // Fragment Shader
     fragment = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragment, 1, &fShaderCode, NULL);
+    glShaderSource(fragment, 1, &fShaderCode, nullptr);
     glCompileShader(fragment);
     glGetShaderiv(fragment, GL_COMPILE_STATUS, &success);
     if (!success) {
-        glGetShaderInfoLog(fragment, 512, NULL, infoLog);
+        glGetShaderInfoLog(fragment, 512, nullptr, infoLog);
         std::cerr << "ERRORE::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
     }
 
@@ -63,7 +63,7 @@ Shader::Shader(const char* vertexPath, const char* fragmentPath) {
     glLinkProgram(ID);
     glGetProgramiv(ID, GL_LINK_STATUS, &success);
     if (!success) {
-        glGetProgramInfoLog(ID, 512, NULL, infoLog);
+        glGetProgramInfoLog(ID, 512, nullptr, infoLog);
         std::cerr << "ERRORE::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
     }
 
@@ -72,7 +72,7 @@ Shader::Shader(const char* vertexPath, const char* fragmentPath) {
     glDeleteShader(fragment);
 }
 
-void Shader::use() {
+void Shader::use() const {
     glUseProgram(ID);
 }
 

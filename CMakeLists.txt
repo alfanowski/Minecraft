@@ -38,6 +38,7 @@ include_directories(include)
 set(SOURCES
         src/main.cpp
         src/Shader.cpp
+        src/Camera.cpp
 )
 # --- TARGET FINALE ---
 
