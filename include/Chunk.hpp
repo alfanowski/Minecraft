@@ -15,7 +15,9 @@ public:
     // 0 = Aria, 1 = Terra (per ora usiamo un sistema ignorante a 8 bit)
     unsigned char blocks[SIZE][HEIGHT][SIZE]{};
 
-    Chunk();
+    int chunkX, chunkZ;
+
+    Chunk(int chunkX, int chunkZ);
     ~Chunk();
 
     // Genera la mesh basandosi sui blocchi adiacenti (Face Culling)
@@ -33,7 +35,6 @@ private:
     std::vector<unsigned int> indices;
 
     // Helper per aggiungere una faccia alla mesh se visibile
-    void addFace(int x, int y, int z, const std::string& faceType);
-};
+    void addFace(int x, int y, int z, std::string faceType, unsigned char blockID);};
 
 #endif

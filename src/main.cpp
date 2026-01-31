@@ -6,38 +6,28 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <iostream>
+#include <vector>
+#include <memory>
 #include "Shader.hpp"
 #include "Camera.hpp"
 #include "Chunk.hpp"
-
-// Non definire STB_IMAGE_IMPLEMENTATION qui se lo hai già fatto in stb_setup.cpp!
 #include "stb_image.h"
 
 // --- GLOBALI ---
-// Iniziamo la camera un po' distante dal centro del chunk (8, 16, 8) per vederlo bene
-Camera camera(glm::vec3(8.0f, 15.0f, 30.0f));
+Camera camera(glm::vec3(8.0f, 20.0f, 30.0f));
 float lastX = 640.0f, lastY = 360.0f;
 bool firstMouse = true;
-
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
 // --- CALLBACKS ---
 void mouse_callback(GLFWwindow* window, double xposIn, double yposIn) {
-    auto xpos = static_cast<float>(xposIn);
-    auto ypos = static_cast<float>(yposIn);
-
-    if (firstMouse) {
-        lastX = xpos;
-        lastY = ypos;
-        firstMouse = false;
-    }
-
+    float xpos = static_cast<float>(xposIn);
+    float ypos = static_cast<float>(yposIn);
+    if (firstMouse) { lastX = xpos; lastY = ypos; firstMouse = false; }
     float xoffset = xpos - lastX;
     float yoffset = lastY - ypos;
-    lastX = xpos;
-    lastY = ypos;
-
+    lastX = xpos; lastY = ypos;
     camera.ProcessMouseMovement(xoffset, yoffset);
 }
 
@@ -48,95 +38,111 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
 void processInput(GLFWwindow *window) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
-
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) camera.ProcessKeyboard(FORWARD, deltaTime);
     if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) camera.ProcessKeyboard(BACKWARD, deltaTime);
     if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) camera.ProcessKeyboard(LEFT, deltaTime);
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) camera.ProcessKeyboard(RIGHT, deltaTime);
 }
 
-int main() {
-    // --- INIT GLFW ---
-    if (!glfwInit()) return -1;
+// --- CARICAMENTO TEXTURE ARRAY ---
+unsigned int loadTextureArray(const std::vector<std::string>& faces) {
+    unsigned int textureArray;
+    glGenTextures(1, &textureArray);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, textureArray);
 
+    int width, height, nrChannels;
+    unsigned char* data = stbi_load(faces[0].c_str(), &width, &height, &nrChannels, 0);
+    if (!data) {
+        std::cerr << "ERRORE: Impossibile caricare " << faces[0] << std::endl;
+        return 0;
+    }
+
+    // Alloca memoria 3D per l'array di texture
+    glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA, width, height, (GLsizei)faces.size(), 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+
+    for (unsigned int i = 0; i < faces.size(); i++) {
+        data = stbi_load(faces[i].c_str(), &width, &height, &nrChannels, 0);
+        if (data) {
+            GLenum format = (nrChannels == 4) ? GL_RGBA : GL_RGB;
+            glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, i, width, height, 1, format, GL_UNSIGNED_BYTE, data);
+            stbi_image_free(data);
+        }
+    }
+
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+    return textureArray;
+}
+
+int main() {
+    if (!glfwInit()) return -1;
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE); // Necessario su Mac
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 
     GLFWwindow* window = glfwCreateWindow(1280, 720, "Minecraft Engine - alfanowski", nullptr, nullptr);
-    if (!window) {
-        std::cerr << "Errore creazione finestra" << std::endl;
-        glfwTerminate();
-        return -1;
-    }
+    if (!window) { glfwTerminate(); return -1; }
 
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetCursorPosCallback(window, mouse_callback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
-    // --- OPENGL STATE ---
     glEnable(GL_DEPTH_TEST);
-    // Culling delle facce posteriori per performance (opzionale ma consigliato)
-    //glEnable(GL_CULL_FACE);
+    //glEnable(GL_CULL_FACE); // Ora che abbiamo addFace CCW, attiviamolo!
 
-    // --- SHADER & TEXTURE ---
     Shader ourShader("../shaders/vertex.glsl", "../shaders/fragment.glsl");
 
-    unsigned int texture;
-    glGenTextures(1, &texture);
-    glBindTexture(GL_TEXTURE_2D, texture);
-
-    // Minecraft style: niente sfocature, solo pixel duri e puri
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-    int width, height, nrChannels;
+    // --- SETUP TEXTURE ARRAY ---
     stbi_set_flip_vertically_on_load(true);
-    // Assicurati che il path sia corretto rispetto all'eseguibile!
-    unsigned char *data = stbi_load("../assets/dirt.png", &width, &height, &nrChannels, 0);
+    std::vector<std::string> texturePaths = {
+        "../assets/block/grass_block_top.png",  // Layer 0
+        "../assets/block/grass_block_side.png", // Layer 1
+        "../assets/block/dirt.png"              // Layer 2
+    };
+    unsigned int texArray = loadTextureArray(texturePaths);
 
-    if (data) {
-        const GLenum format = (nrChannels == 4) ? GL_RGBA : GL_RGB;
-        glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
-        glGenerateMipmap(GL_TEXTURE_2D);
-    } else {
-        std::cerr << "ERRORE: Impossibile caricare la texture in ../assets/dirt.png" << std::endl;
+    // --- MONDO (Griglia 4x4) ---
+    std::vector<std::unique_ptr<Chunk>> worldChunks;
+    for(int x = -2; x < 2; x++) {
+        for(int z = -2; z < 2; z++) {
+            worldChunks.push_back(std::make_unique<Chunk>(x, z));
+        }
     }
-    stbi_image_free(data);
 
-    // --- CHUNK ---
-    Chunk myChunk;
-
-    // --- LOOP ---
     while (!glfwWindowShouldClose(window)) {
-        auto currentFrame = static_cast<float>(glfwGetTime());
+        float currentFrame = static_cast<float>(glfwGetTime());
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
         processInput(window);
 
-        // Colore del cielo (Celeste chiaro)
-        glClearColor(0.52f, 0.80f, 0.92f, 1.0f);
+        glClearColor(0.52f, 0.80f, 0.92f, 1.0f); // Sky Blue
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         ourShader.use();
 
-        // Matrici per la trasformazione 3D
-        int fbWidth, fbHeight;
-        glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
-        glm::mat4 projection = glm::perspective(glm::radians(45.0f), static_cast<float>(fbWidth) / static_cast<float>(fbHeight), 0.1f, 200.0f);
-        glm::mat4 view = camera.GetViewMatrix();
-        auto model = glm::mat4(1.0f);
-
+        int width, height;
+        glfwGetFramebufferSize(window, &width, &height);
+        glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)width / (float)height, 0.1f, 500.0f);
         ourShader.setMat4("projection", projection);
-        ourShader.setMat4("view", view);
-        ourShader.setMat4("model", model);
+        ourShader.setMat4("view", camera.GetViewMatrix());
 
-        // Binding della texture e render
-        glBindTexture(GL_TEXTURE_2D, texture);
-        myChunk.render();
+        // BINDING DEL TEXTURE ARRAY
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, texArray);
+        ourShader.setInt("textureArray", 0);
+
+        for (const auto& chunk : worldChunks) {
+            glm::mat4 model = glm::mat4(1.0f);
+            model = glm::translate(model, glm::vec3(chunk->chunkX * 16, 0, chunk->chunkZ * 16));
+            ourShader.setMat4("model", model);
+            chunk->render();
+        }
 
         glfwSwapBuffers(window);
         glfwPollEvents();
