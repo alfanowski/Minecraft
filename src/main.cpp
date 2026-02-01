@@ -194,6 +194,85 @@ void breakBlock() {
     }
 }
 
+void placeBlock() {
+    glm::vec3 rayOrigin = camera.Position;
+    glm::vec3 rayDir = camera.Front;
+    float maxDist = 5.0f;
+    float step = 0.05f;
+
+    int prevX = -1, prevY = -1, prevZ = -1;
+
+    for (float t = 0.0f; t < maxDist; t += step) {
+        glm::vec3 p = rayOrigin + rayDir * t;
+        int x = static_cast<int>(floor(p.x));
+        int y = static_cast<int>(floor(p.y));
+        int z = static_cast<int>(floor(p.z));
+
+        if (prevX == -1) {
+            prevX = x; prevY = y; prevZ = z;
+            continue;
+        }
+
+        int chunkX = static_cast<int>(floor(x / 16.0f));
+        int chunkZ = static_cast<int>(floor(z / 16.0f));
+        long long key = chunkHash(chunkX, chunkZ);
+        auto it = worldChunks.find(key);
+
+        if (it != worldChunks.end()) {
+            int localX = x % 16; if (localX < 0) localX += 16;
+            int localZ = z % 16; if (localZ < 0) localZ += 16;
+
+            if (y >= 0 && y < Chunk::HEIGHT) {
+                if (it->second->blocks[localX][y][localZ] != 0) {
+                    // Collision check with player
+                    float playerMinX = camera.Position.x - camera.width / 2.0f;
+                    float playerMaxX = camera.Position.x + camera.width / 2.0f;
+                    float playerMinY = camera.Position.y - camera.eyeHeight;
+                    float playerMaxY = camera.Position.y + (camera.height - camera.eyeHeight);
+                    float playerMinZ = camera.Position.z - camera.width / 2.0f;
+                    float playerMaxZ = camera.Position.z + camera.width / 2.0f;
+
+                    float blockMinX = static_cast<float>(prevX);
+                    float blockMaxX = static_cast<float>(prevX) + 1.0f;
+                    float blockMinY = static_cast<float>(prevY);
+                    float blockMaxY = static_cast<float>(prevY) + 1.0f;
+                    float blockMinZ = static_cast<float>(prevZ);
+                    float blockMaxZ = static_cast<float>(prevZ) + 1.0f;
+
+                    bool collisionX = playerMinX < blockMaxX && playerMaxX > blockMinX;
+                    bool collisionY = playerMinY < blockMaxY && playerMaxY > blockMinY;
+                    bool collisionZ = playerMinZ < blockMaxZ && playerMaxZ > blockMinZ;
+
+                    if (collisionX && collisionY && collisionZ) {
+                        return; // Cannot place block inside player
+                    }
+
+                    // Place block
+                    int prevChunkX = static_cast<int>(floor(prevX / 16.0f));
+                    int prevChunkZ = static_cast<int>(floor(prevZ / 16.0f));
+                    long long prevKey = chunkHash(prevChunkX, prevChunkZ);
+                    auto prevIt = worldChunks.find(prevKey);
+
+                    if (prevIt != worldChunks.end()) {
+                        int prevLocalX = prevX % 16; if (prevLocalX < 0) prevLocalX += 16;
+                        int prevLocalZ = prevZ % 16; if (prevLocalZ < 0) prevLocalZ += 16;
+
+                        if (prevY >= 0 && prevY < Chunk::HEIGHT) {
+                            prevIt->second->blocks[prevLocalX][prevY][prevLocalZ] = 3; // Stone
+                            prevIt->second->rebuild();
+                        }
+                    }
+                    return;
+                }
+            }
+        }
+
+        prevX = x;
+        prevY = y;
+        prevZ = z;
+    }
+}
+
 void mouse_callback(GLFWwindow* window, double xposIn, double yposIn) {
     float xpos = static_cast<float>(xposIn);
     float ypos = static_cast<float>(yposIn);
@@ -205,8 +284,12 @@ void mouse_callback(GLFWwindow* window, double xposIn, double yposIn) {
 }
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
-    if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-        breakBlock();
+    if (action == GLFW_PRESS) {
+        if (button == GLFW_MOUSE_BUTTON_LEFT) {
+            breakBlock();
+        } else if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+            placeBlock();
+        }
     }
 }
 
