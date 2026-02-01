@@ -7,23 +7,24 @@ Chunk::Chunk(int cx, int cz) : chunkX(cx), chunkZ(cz) {
     glGenBuffers(1, &VBO);
     glGenBuffers(1, &EBO);
 
-    // Inizializzazione Noise professionale
     FastNoiseLite noise;
     noise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
-    noise.SetFrequency(0.05f);
+    noise.SetFrequency(0.01f);
 
     for (int x = 0; x < SIZE; x++) {
         for (int z = 0; z < SIZE; z++) {
-            // Coordinate globali per un terreno continuo
             float worldX = static_cast<float>(x + chunkX * SIZE);
             float worldZ = static_cast<float>(z + chunkZ * SIZE);
-            float noiseValue = noise.GetNoise(worldX, worldZ);
 
-            // Mappatura altezza (tra 4 e 12 blocchi)
-            int terrainHeight = static_cast<int>((noiseValue + 1.0f) * 4.0f + 4.0f);
+            float noiseValue = noise.GetNoise(worldX, worldZ);
+            int terrainHeight = static_cast<int>((noiseValue + 1.0f) * 20.0f + 30.0f);
 
             for (int y = 0; y < HEIGHT; y++) {
-                if (y < terrainHeight) {
+                if (y == 0) {
+                    blocks[x][y][z] = 4; // Bedrock
+                } else if (y < terrainHeight - 3) {
+                    blocks[x][y][z] = 3; // Pietra
+                } else if (y < terrainHeight) {
                     blocks[x][y][z] = 2; // Terra
                 } else if (y == terrainHeight) {
                     blocks[x][y][z] = 1; // Erba
@@ -45,20 +46,20 @@ Chunk::~Chunk() {
 void Chunk::addFace(int x, int y, int z, std::string faceType, unsigned char blockID) {
     float layer = 0.0f;
 
-    // Mapping dei Layer
-    // 0: grass_top, 1: grass_side, 2: dirt
-    if (blockID == 1) { // Blocco Erba
+    if (blockID == 1) { // Erba
         if (faceType == "TOP") layer = 0.0f;
         else if (faceType == "BOTTOM") layer = 2.0f;
         else layer = 1.0f;
-    } else if (blockID == 2) { // Blocco Terra
+    } else if (blockID == 2) { // Terra
         layer = 2.0f;
+    } else if (blockID == 3) { // Pietra
+        layer = 3.0f;
+    } else if (blockID == 4) { // Bedrock
+        layer = 4.0f;
     }
 
     unsigned int startIdx = static_cast<unsigned int>(vertices.size() / 6);
 
-    // Coordinate vertici allineate alla griglia 0..1 (invece di -0.5..0.5)
-    // Questo allinea la grafica con la logica di collisione basata su floor()
     float x0 = static_cast<float>(x);
     float x1 = static_cast<float>(x + 1);
     float y0 = static_cast<float>(y);
@@ -66,17 +67,19 @@ void Chunk::addFace(int x, int y, int z, std::string faceType, unsigned char blo
     float z0 = static_cast<float>(z);
     float z1 = static_cast<float>(z + 1);
 
-    // Definizione vertici: X, Y, Z, U, V, Layer
-    if (faceType == "TOP") {
+    // Definizione vertici rigorosamente CCW (Counter-Clockwise)
+    // Ordine: v0, v1, v2, v3 -> Triangoli: (0,1,2) e (0,2,3)
+
+    if (faceType == "TOP") { // Normale +Y
         float f[] = {
-            x0, y1, z1, 0.0f, 1.0f, layer,
-            x1, y1, z1, 1.0f, 1.0f, layer,
-            x1, y1, z0, 1.0f, 0.0f, layer,
-            x0, y1, z0, 0.0f, 0.0f, layer
+            x0, y1, z1, 0.0f, 1.0f, layer, // v0
+            x1, y1, z1, 1.0f, 1.0f, layer, // v1
+            x1, y1, z0, 1.0f, 0.0f, layer, // v2
+            x0, y1, z0, 0.0f, 0.0f, layer  // v3
         };
         vertices.insert(vertices.end(), f, f + 24);
     }
-    else if (faceType == "BOTTOM") {
+    else if (faceType == "BOTTOM") { // Normale -Y
         float f[] = {
             x0, y0, z0, 0.0f, 0.0f, layer,
             x1, y0, z0, 1.0f, 0.0f, layer,
@@ -85,49 +88,51 @@ void Chunk::addFace(int x, int y, int z, std::string faceType, unsigned char blo
         };
         vertices.insert(vertices.end(), f, f + 24);
     }
-    else if (faceType == "LEFT") {
+    else if (faceType == "LEFT") { // Normale -X
         float f[] = {
-            x0, y1, z0, 0.0f, 1.0f, layer,
-            x0, y1, z1, 1.0f, 1.0f, layer,
-            x0, y0, z1, 1.0f, 0.0f, layer,
-            x0, y0, z0, 0.0f, 0.0f, layer
+            x0, y0, z0, 0.0f, 0.0f, layer, // v0
+            x0, y0, z1, 1.0f, 0.0f, layer, // v1
+            x0, y1, z1, 1.0f, 1.0f, layer, // v2
+            x0, y1, z0, 0.0f, 1.0f, layer  // v3
         };
         vertices.insert(vertices.end(), f, f + 24);
     }
-    else if (faceType == "RIGHT") {
+    else if (faceType == "RIGHT") { // Normale +X
         float f[] = {
-            x1, y1, z1, 0.0f, 1.0f, layer,
-            x1, y1, z0, 1.0f, 1.0f, layer,
-            x1, y0, z0, 1.0f, 0.0f, layer,
-            x1, y0, z1, 0.0f, 0.0f, layer
+            x1, y0, z1, 0.0f, 0.0f, layer, // v0
+            x1, y0, z0, 1.0f, 0.0f, layer, // v1
+            x1, y1, z0, 1.0f, 1.0f, layer, // v2
+            x1, y1, z1, 0.0f, 1.0f, layer  // v3
         };
         vertices.insert(vertices.end(), f, f + 24);
     }
-    else if (faceType == "FRONT") {
+    else if (faceType == "FRONT") { // Normale +Z
         float f[] = {
-            x0, y1, z1, 0.0f, 1.0f, layer,
-            x1, y1, z1, 1.0f, 1.0f, layer,
-            x1, y0, z1, 1.0f, 0.0f, layer,
-            x0, y0, z1, 0.0f, 0.0f, layer
+            x0, y0, z1, 0.0f, 0.0f, layer, // v0
+            x1, y0, z1, 1.0f, 0.0f, layer, // v1
+            x1, y1, z1, 1.0f, 1.0f, layer, // v2
+            x0, y1, z1, 0.0f, 1.0f, layer  // v3
         };
         vertices.insert(vertices.end(), f, f + 24);
     }
-    else if (faceType == "BACK") {
+    else if (faceType == "BACK") { // Normale -Z
         float f[] = {
-            x1, y1, z0, 0.0f, 1.0f, layer,
-            x0, y1, z0, 1.0f, 1.0f, layer,
-            x0, y0, z0, 1.0f, 0.0f, layer,
-            x1, y0, z0, 0.0f, 0.0f, layer
+            x1, y0, z0, 0.0f, 0.0f, layer, // v0
+            x0, y0, z0, 1.0f, 0.0f, layer, // v1
+            x0, y1, z0, 1.0f, 1.0f, layer, // v2
+            x1, y1, z0, 0.0f, 1.0f, layer  // v3
         };
         vertices.insert(vertices.end(), f, f + 24);
     }
 
+    // Indici standard per Quad (0-1-2 e 0-2-3)
     indices.push_back(startIdx + 0);
     indices.push_back(startIdx + 1);
     indices.push_back(startIdx + 2);
+
+    indices.push_back(startIdx + 0);
     indices.push_back(startIdx + 2);
     indices.push_back(startIdx + 3);
-    indices.push_back(startIdx + 0);
 }
 
 void Chunk::buildMesh() {
@@ -140,7 +145,6 @@ void Chunk::buildMesh() {
                 unsigned char block = blocks[x][y][z];
                 if (block == 0) continue;
 
-                // Face Culling Interno
                 if (y == HEIGHT - 1 || blocks[x][y+1][z] == 0) addFace(x, y, z, "TOP", block);
                 if (y == 0          || blocks[x][y-1][z] == 0) addFace(x, y, z, "BOTTOM", block);
                 if (x == 0          || blocks[x-1][y][z] == 0) addFace(x, y, z, "LEFT", block);
@@ -158,7 +162,6 @@ void Chunk::buildMesh() {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
 
-    // Attributi: 0 = Posizione (3 float), 1 = TexCoords (3 float: U, V, Layer)
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));

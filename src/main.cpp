@@ -8,21 +8,27 @@
 #include <iostream>
 #include <vector>
 #include <memory>
+#include <cmath>
+#include <unordered_map>
 #include "Shader.hpp"
 #include "Camera.hpp"
 #include "Chunk.hpp"
 #include "stb_image.h"
 
 // --- GLOBALI ---
-Camera camera(glm::vec3(8.0f, 20.0f, 30.0f));
-std::vector<std::unique_ptr<Chunk>> worldChunks; // Spostato globale per accesso nel callback
+// Spawn più alto per il nuovo mondo alto 128 blocchi
+Camera camera(glm::vec3(8.0f, 80.0f, 30.0f));
+
+std::unordered_map<long long, std::unique_ptr<Chunk>> worldChunks;
 
 float lastX = 640.0f, lastY = 360.0f;
 bool firstMouse = true;
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
-// --- SHADER MIRINO (Inline per semplicità) ---
+const int RENDER_DISTANCE = 8;
+
+// --- SHADER MIRINO ---
 const char* crosshairVS = R"(
 #version 410 core
 layout (location = 0) in vec2 aPos;
@@ -35,24 +41,17 @@ const char* crosshairFS = R"(
 #version 410 core
 out vec4 FragColor;
 void main() {
-    FragColor = vec4(1.0, 1.0, 1.0, 1.0); // Bianco
+    FragColor = vec4(1.0, 1.0, 1.0, 1.0);
 }
 )";
 
 unsigned int crosshairVAO, crosshairVBO, crosshairProgram;
 
-// --- FUNZIONI UTILI ---
-
-// Setup del mirino
 void setupCrosshair() {
-    // Semplice croce al centro
     float vertices[] = {
-        -0.02f,  0.0f,   // Sinistra
-         0.02f,  0.0f,   // Destra
-         0.0f,  -0.035f, // Sotto (corretto per aspect ratio 16:9 approx)
-         0.0f,   0.035f  // Sopra
+        -0.02f,  0.0f, 0.02f,  0.0f,
+         0.0f,  -0.035f, 0.0f,   0.035f
     };
-
     glGenVertexArrays(1, &crosshairVAO);
     glGenBuffers(1, &crosshairVBO);
     glBindVertexArray(crosshairVAO);
@@ -61,12 +60,10 @@ void setupCrosshair() {
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
-    // Compila shader mirino
-    unsigned int vertex, fragment;
-    vertex = glCreateShader(GL_VERTEX_SHADER);
+    unsigned int vertex = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertex, 1, &crosshairVS, NULL);
     glCompileShader(vertex);
-    fragment = glCreateShader(GL_FRAGMENT_SHADER);
+    unsigned int fragment = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(fragment, 1, &crosshairFS, NULL);
     glCompileShader(fragment);
     crosshairProgram = glCreateProgram();
@@ -83,43 +80,62 @@ void drawCrosshair() {
     glDrawArrays(GL_LINES, 0, 4);
 }
 
-// Logica Raycast per rompere blocchi
+// --- GESTIONE MONDO DINAMICO ---
+void updateChunks() {
+    int playerChunkX = static_cast<int>(floor(camera.Position.x / 16.0f));
+    int playerChunkZ = static_cast<int>(floor(camera.Position.z / 16.0f));
+
+    for (int x = playerChunkX - RENDER_DISTANCE; x <= playerChunkX + RENDER_DISTANCE; x++) {
+        for (int z = playerChunkZ - RENDER_DISTANCE; z <= playerChunkZ + RENDER_DISTANCE; z++) {
+            long long key = chunkHash(x, z);
+            if (worldChunks.find(key) == worldChunks.end()) {
+                worldChunks[key] = std::make_unique<Chunk>(x, z);
+            }
+        }
+    }
+
+    for (auto it = worldChunks.begin(); it != worldChunks.end(); ) {
+        int cx = it->second->chunkX;
+        int cz = it->second->chunkZ;
+        if (abs(cx - playerChunkX) > RENDER_DISTANCE + 2 ||
+            abs(cz - playerChunkZ) > RENDER_DISTANCE + 2) {
+            it = worldChunks.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 void breakBlock() {
     glm::vec3 rayOrigin = camera.Position;
     glm::vec3 rayDir = camera.Front;
-    float maxDist = 5.0f; // Raggio d'azione
-    float step = 0.05f;   // Precisione del raggio
+    float maxDist = 5.0f;
+    float step = 0.05f;
 
     for (float t = 0.0f; t < maxDist; t += step) {
         glm::vec3 p = rayOrigin + rayDir * t;
-
         int x = static_cast<int>(floor(p.x));
         int y = static_cast<int>(floor(p.y));
         int z = static_cast<int>(floor(p.z));
-
-        // Trova il chunk
         int chunkX = static_cast<int>(floor(x / 16.0f));
         int chunkZ = static_cast<int>(floor(z / 16.0f));
+        long long key = chunkHash(chunkX, chunkZ);
+        auto it = worldChunks.find(key);
 
-        int localX = x % 16; if (localX < 0) localX += 16;
-        int localZ = z % 16; if (localZ < 0) localZ += 16;
-
-        for (auto& chunk : worldChunks) {
-            if (chunk->chunkX == chunkX && chunk->chunkZ == chunkZ) {
-                if (y >= 0 && y < Chunk::HEIGHT) {
-                    if (chunk->blocks[localX][y][localZ] != 0) {
-                        // Trovato un blocco! Rompilo.
-                        chunk->blocks[localX][y][localZ] = 0; // 0 = Aria
-                        chunk->buildMesh(); // Rigenera la mesh
-                        return; // Fermiamo il raggio
-                    }
+        if (it != worldChunks.end()) {
+            int localX = x % 16; if (localX < 0) localX += 16;
+            int localZ = z % 16; if (localZ < 0) localZ += 16;
+            if (y >= 0 && y < Chunk::HEIGHT) {
+                if (it->second->blocks[localX][y][localZ] != 0) {
+                    it->second->blocks[localX][y][localZ] = 0;
+                    it->second->buildMesh();
+                    return;
                 }
             }
         }
     }
 }
 
-// --- CALLBACKS ---
 void mouse_callback(GLFWwindow* window, double xposIn, double yposIn) {
     float xpos = static_cast<float>(xposIn);
     float ypos = static_cast<float>(yposIn);
@@ -143,7 +159,6 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
 void processInput(GLFWwindow *window) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
-
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
         camera.ProcessKeyboard(FORWARD, deltaTime, worldChunks);
     if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
@@ -152,17 +167,14 @@ void processInput(GLFWwindow *window) {
         camera.ProcessKeyboard(LEFT, deltaTime, worldChunks);
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
         camera.ProcessKeyboard(RIGHT, deltaTime, worldChunks);
-
     if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
         camera.ProcessJump();
-
     if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
-        camera.Position = glm::vec3(8.0f, 20.0f, 8.0f);
+        camera.Position = glm::vec3(8.0f, 80.0f, 8.0f);
         camera.yVelocity = 0.0f;
     }
 }
 
-// --- CARICAMENTO TEXTURE ARRAY ---
 unsigned int loadTextureArray(const std::vector<std::string>& faces) {
     unsigned int textureArray;
     glGenTextures(1, &textureArray);
@@ -183,6 +195,8 @@ unsigned int loadTextureArray(const std::vector<std::string>& faces) {
             GLenum format = (nrChannels == 4) ? GL_RGBA : GL_RGB;
             glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, i, width, height, 1, format, GL_UNSIGNED_BYTE, data);
             stbi_image_free(data);
+        } else {
+             std::cerr << "ERRORE: Impossibile caricare texture " << i << ": " << faces[i] << std::endl;
         }
     }
 
@@ -201,51 +215,52 @@ int main() {
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "Minecraft", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(1280, 720, "Minecraft Engine - alfanowski", nullptr, nullptr);
     if (!window) { glfwTerminate(); return -1; }
 
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetCursorPosCallback(window, mouse_callback);
-    glfwSetMouseButtonCallback(window, mouse_button_callback); // Callback click
+    glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     glEnable(GL_DEPTH_TEST);
-    //glEnable(GL_CULL_FACE);
+    glEnable(GL_CULL_FACE);
 
     Shader ourShader("../shaders/vertex.glsl", "../shaders/fragment.glsl");
-    setupCrosshair(); // Inizializza mirino
+    setupCrosshair();
 
     stbi_set_flip_vertically_on_load(true);
     std::vector<std::string> texturePaths = {
-        "../assets/block/grass_block_top.png",
-        "../assets/block/grass_block_side.png",
-        "../assets/block/dirt.png"
+        "../assets/block/grass_block_top.png",  // 0
+        "../assets/block/grass_block_side.png", // 1
+        "../assets/block/dirt.png",             // 2
+        "../assets/block/stone.png",            // 3 (Nuovo)
+        "../assets/block/bedrock.png"           // 4 (Nuovo)
     };
     unsigned int texArray = loadTextureArray(texturePaths);
 
-    // Generazione Mondo
-    for(int x = -2; x < 2; x++) {
-        for(int z = -2; z < 2; z++) {
-            worldChunks.push_back(std::make_unique<Chunk>(x, z));
-        }
-    }
+    updateChunks();
 
     while (!glfwWindowShouldClose(window)) {
         float currentFrame = static_cast<float>(glfwGetTime());
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
+        updateChunks();
         processInput(window);
         camera.UpdatePhysics(deltaTime, worldChunks);
 
         glClearColor(0.52f, 0.80f, 0.92f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // 1. Render Mondo 3D
         ourShader.use();
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
+
+        // Aggiorna Frustum
+        camera.updateFrustum((float)width / (float)height, glm::radians(45.0f), 0.1f, 500.0f);
+
         glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)width / (float)height, 0.1f, 500.0f);
         ourShader.setMat4("projection", projection);
         ourShader.setMat4("view", camera.GetViewMatrix());
@@ -254,14 +269,20 @@ int main() {
         glBindTexture(GL_TEXTURE_2D_ARRAY, texArray);
         ourShader.setInt("textureArray", 0);
 
-        for (const auto& chunk : worldChunks) {
-            glm::mat4 model = glm::mat4(1.0f);
-            model = glm::translate(model, glm::vec3(chunk->chunkX * 16, 0, chunk->chunkZ * 16));
-            ourShader.setMat4("model", model);
-            chunk->render();
+        for (const auto& pair : worldChunks) {
+            const auto& chunk = pair.second;
+
+            // FRUSTUM CULLING: Disegna solo se visibile
+            glm::vec3 min = chunk->getMin();
+            glm::vec3 max = chunk->getMax();
+            if (camera.frustum.isBoxVisible(min, max)) {
+                glm::mat4 model = glm::mat4(1.0f);
+                model = glm::translate(model, glm::vec3(chunk->chunkX * 16, 0, chunk->chunkZ * 16));
+                ourShader.setMat4("model", model);
+                chunk->render();
+            }
         }
 
-        // 2. Render UI (Mirino) - Disabilita Depth Test per disegnare sopra tutto
         glDisable(GL_DEPTH_TEST);
         drawCrosshair();
         glEnable(GL_DEPTH_TEST);
