@@ -45,7 +45,7 @@ Chunk::~Chunk() {
 void Chunk::addFace(int x, int y, int z, std::string faceType, unsigned char blockID) {
     float layer = 0.0f;
 
-    // Mapping dei Layer (Assicurati che l'ordine in main.cpp sia lo stesso!)
+    // Mapping dei Layer
     // 0: grass_top, 1: grass_side, 2: dirt
     if (blockID == 1) { // Blocco Erba
         if (faceType == "TOP") layer = 0.0f;
@@ -57,58 +57,67 @@ void Chunk::addFace(int x, int y, int z, std::string faceType, unsigned char blo
 
     unsigned int startIdx = static_cast<unsigned int>(vertices.size() / 6);
 
+    // Coordinate vertici allineate alla griglia 0..1 (invece di -0.5..0.5)
+    // Questo allinea la grafica con la logica di collisione basata su floor()
+    float x0 = static_cast<float>(x);
+    float x1 = static_cast<float>(x + 1);
+    float y0 = static_cast<float>(y);
+    float y1 = static_cast<float>(y + 1);
+    float z0 = static_cast<float>(z);
+    float z1 = static_cast<float>(z + 1);
+
     // Definizione vertici: X, Y, Z, U, V, Layer
     if (faceType == "TOP") {
         float f[] = {
-            x-0.5f, y+0.5f, z+0.5f, 0.0f, 1.0f, layer,
-            x+0.5f, y+0.5f, z+0.5f, 1.0f, 1.0f, layer,
-            x+0.5f, y+0.5f, z-0.5f, 1.0f, 0.0f, layer,
-            x-0.5f, y+0.5f, z-0.5f, 0.0f, 0.0f, layer
+            x0, y1, z1, 0.0f, 1.0f, layer,
+            x1, y1, z1, 1.0f, 1.0f, layer,
+            x1, y1, z0, 1.0f, 0.0f, layer,
+            x0, y1, z0, 0.0f, 0.0f, layer
         };
         vertices.insert(vertices.end(), f, f + 24);
     }
     else if (faceType == "BOTTOM") {
         float f[] = {
-            x-0.5f, y-0.5f, z-0.5f, 0.0f, 0.0f, layer,
-            x+0.5f, y-0.5f, z-0.5f, 1.0f, 0.0f, layer,
-            x+0.5f, y-0.5f, z+0.5f, 1.0f, 1.0f, layer,
-            x-0.5f, y-0.5f, z+0.5f, 0.0f, 1.0f, layer
+            x0, y0, z0, 0.0f, 0.0f, layer,
+            x1, y0, z0, 1.0f, 0.0f, layer,
+            x1, y0, z1, 1.0f, 1.0f, layer,
+            x0, y0, z1, 0.0f, 1.0f, layer
         };
         vertices.insert(vertices.end(), f, f + 24);
     }
     else if (faceType == "LEFT") {
         float f[] = {
-            x-0.5f, y+0.5f, z-0.5f, 0.0f, 1.0f, layer,
-            x-0.5f, y+0.5f, z+0.5f, 1.0f, 1.0f, layer,
-            x-0.5f, y-0.5f, z+0.5f, 1.0f, 0.0f, layer,
-            x-0.5f, y-0.5f, z-0.5f, 0.0f, 0.0f, layer
+            x0, y1, z0, 0.0f, 1.0f, layer,
+            x0, y1, z1, 1.0f, 1.0f, layer,
+            x0, y0, z1, 1.0f, 0.0f, layer,
+            x0, y0, z0, 0.0f, 0.0f, layer
         };
         vertices.insert(vertices.end(), f, f + 24);
     }
     else if (faceType == "RIGHT") {
         float f[] = {
-            x+0.5f, y+0.5f, z+0.5f, 0.0f, 1.0f, layer,
-            x+0.5f, y+0.5f, z-0.5f, 1.0f, 1.0f, layer,
-            x+0.5f, y-0.5f, z-0.5f, 1.0f, 0.0f, layer,
-            x+0.5f, y-0.5f, z+0.5f, 0.0f, 0.0f, layer
+            x1, y1, z1, 0.0f, 1.0f, layer,
+            x1, y1, z0, 1.0f, 1.0f, layer,
+            x1, y0, z0, 1.0f, 0.0f, layer,
+            x1, y0, z1, 0.0f, 0.0f, layer
         };
         vertices.insert(vertices.end(), f, f + 24);
     }
     else if (faceType == "FRONT") {
         float f[] = {
-            x-0.5f, y+0.5f, z+0.5f, 0.0f, 1.0f, layer,
-            x+0.5f, y+0.5f, z+0.5f, 1.0f, 1.0f, layer,
-            x+0.5f, y-0.5f, z+0.5f, 1.0f, 0.0f, layer,
-            x-0.5f, y-0.5f, z+0.5f, 0.0f, 0.0f, layer
+            x0, y1, z1, 0.0f, 1.0f, layer,
+            x1, y1, z1, 1.0f, 1.0f, layer,
+            x1, y0, z1, 1.0f, 0.0f, layer,
+            x0, y0, z1, 0.0f, 0.0f, layer
         };
         vertices.insert(vertices.end(), f, f + 24);
     }
     else if (faceType == "BACK") {
         float f[] = {
-            x+0.5f, y+0.5f, z-0.5f, 0.0f, 1.0f, layer,
-            x-0.5f, y+0.5f, z-0.5f, 1.0f, 1.0f, layer,
-            x-0.5f, y-0.5f, z-0.5f, 1.0f, 0.0f, layer,
-            x+0.5f, y-0.5f, z-0.5f, 0.0f, 0.0f, layer
+            x1, y1, z0, 0.0f, 1.0f, layer,
+            x0, y1, z0, 1.0f, 1.0f, layer,
+            x0, y0, z0, 1.0f, 0.0f, layer,
+            x1, y0, z0, 0.0f, 0.0f, layer
         };
         vertices.insert(vertices.end(), f, f + 24);
     }
