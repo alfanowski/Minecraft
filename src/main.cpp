@@ -10,16 +10,24 @@
 #include <memory>
 #include <cmath>
 #include <unordered_map>
+#include <future>
+#include <list>
 #include "Shader.hpp"
 #include "Camera.hpp"
 #include "Chunk.hpp"
 #include "stb_image.h"
 
 // --- GLOBALI ---
-// Spawn più alto per il nuovo mondo alto 128 blocchi
-Camera camera(glm::vec3(8.0f, 80.0f, 30.0f));
-
+Camera camera(glm::vec3(8.0f, 80.0f, 30.0f)); // Camera ripristinata
 std::unordered_map<long long, std::unique_ptr<Chunk>> worldChunks;
+
+struct PendingChunk {
+    long long key;
+    int x, z;
+    std::future<void> task;
+};
+std::list<PendingChunk> generationQueue;
+std::vector<Chunk*> uploadQueue;
 
 float lastX = 640.0f, lastY = 360.0f;
 bool firstMouse = true;
@@ -80,7 +88,7 @@ void drawCrosshair() {
     glDrawArrays(GL_LINES, 0, 4);
 }
 
-// --- GESTIONE MONDO DINAMICO ---
+// --- GESTIONE MONDO ASINCRONA ---
 void updateChunks() {
     int playerChunkX = static_cast<int>(floor(camera.Position.x / 16.0f));
     int playerChunkZ = static_cast<int>(floor(camera.Position.z / 16.0f));
@@ -88,10 +96,41 @@ void updateChunks() {
     for (int x = playerChunkX - RENDER_DISTANCE; x <= playerChunkX + RENDER_DISTANCE; x++) {
         for (int z = playerChunkZ - RENDER_DISTANCE; z <= playerChunkZ + RENDER_DISTANCE; z++) {
             long long key = chunkHash(x, z);
-            if (worldChunks.find(key) == worldChunks.end()) {
+
+            bool alreadyQueued = false;
+            for(const auto& pc : generationQueue) { if(pc.key == key) { alreadyQueued = true; break; } }
+
+            if (worldChunks.find(key) == worldChunks.end() && !alreadyQueued) {
                 worldChunks[key] = std::make_unique<Chunk>(x, z);
+                Chunk* chunkPtr = worldChunks[key].get();
+
+                generationQueue.push_back({
+                    key, x, z,
+                    std::async(std::launch::async, [chunkPtr]() {
+                        chunkPtr->generate();
+                    })
+                });
             }
         }
+    }
+
+    for (auto it = generationQueue.begin(); it != generationQueue.end(); ) {
+        if (it->task.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            long long key = it->key;
+            if (worldChunks.find(key) != worldChunks.end()) {
+                uploadQueue.push_back(worldChunks[key].get());
+            }
+            it = generationQueue.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    int uploadsPerFrame = 16;
+    for (int i = 0; i < uploadsPerFrame && !uploadQueue.empty(); i++) {
+        Chunk* chunk = uploadQueue.back();
+        uploadQueue.pop_back();
+        chunk->upload();
     }
 
     for (auto it = worldChunks.begin(); it != worldChunks.end(); ) {
@@ -102,6 +141,23 @@ void updateChunks() {
             it = worldChunks.erase(it);
         } else {
             ++it;
+        }
+    }
+}
+
+void forceLoadInitialChunks() {
+    int playerChunkX = static_cast<int>(floor(camera.Position.x / 16.0f));
+    int playerChunkZ = static_cast<int>(floor(camera.Position.z / 16.0f));
+    int initialRadius = 2;
+
+    for (int x = playerChunkX - initialRadius; x <= playerChunkX + initialRadius; x++) {
+        for (int z = playerChunkZ - initialRadius; z <= playerChunkZ + initialRadius; z++) {
+            long long key = chunkHash(x, z);
+            if (worldChunks.find(key) == worldChunks.end()) {
+                worldChunks[key] = std::make_unique<Chunk>(x, z);
+                worldChunks[key]->generate();
+                worldChunks[key]->upload();
+            }
         }
     }
 }
@@ -128,7 +184,9 @@ void breakBlock() {
             if (y >= 0 && y < Chunk::HEIGHT) {
                 if (it->second->blocks[localX][y][localZ] != 0) {
                     it->second->blocks[localX][y][localZ] = 0;
-                    it->second->buildMesh();
+
+                    // FIX: Usa rebuild() per aggiornare correttamente la GPU
+                    it->second->rebuild();
                     return;
                 }
             }
@@ -225,7 +283,7 @@ int main() {
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     glEnable(GL_DEPTH_TEST);
-    glEnable(GL_CULL_FACE);
+    glEnable(GL_CULL_FACE); // Riabilitato Culling
 
     Shader ourShader("../shaders/vertex.glsl", "../shaders/fragment.glsl");
     setupCrosshair();
@@ -235,12 +293,12 @@ int main() {
         "../assets/block/grass_block_top.png",  // 0
         "../assets/block/grass_block_side.png", // 1
         "../assets/block/dirt.png",             // 2
-        "../assets/block/stone.png",            // 3 (Nuovo)
-        "../assets/block/bedrock.png"           // 4 (Nuovo)
+        "../assets/block/stone.png",            // 3
+        "../assets/block/bedrock.png"           // 4
     };
     unsigned int texArray = loadTextureArray(texturePaths);
 
-    updateChunks();
+    forceLoadInitialChunks();
 
     while (!glfwWindowShouldClose(window)) {
         float currentFrame = static_cast<float>(glfwGetTime());
@@ -258,7 +316,6 @@ int main() {
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
 
-        // Aggiorna Frustum
         camera.updateFrustum((float)width / (float)height, glm::radians(45.0f), 0.1f, 500.0f);
 
         glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)width / (float)height, 0.1f, 500.0f);
@@ -272,14 +329,15 @@ int main() {
         for (const auto& pair : worldChunks) {
             const auto& chunk = pair.second;
 
-            // FRUSTUM CULLING: Disegna solo se visibile
-            glm::vec3 min = chunk->getMin();
-            glm::vec3 max = chunk->getMax();
-            if (camera.frustum.isBoxVisible(min, max)) {
-                glm::mat4 model = glm::mat4(1.0f);
-                model = glm::translate(model, glm::vec3(chunk->chunkX * 16, 0, chunk->chunkZ * 16));
-                ourShader.setMat4("model", model);
-                chunk->render();
+            if (chunk->isUploaded) {
+                glm::vec3 min = chunk->getMin();
+                glm::vec3 max = chunk->getMax();
+                if (camera.frustum.isBoxVisible(min, max)) {
+                    glm::mat4 model = glm::mat4(1.0f);
+                    model = glm::translate(model, glm::vec3(chunk->chunkX * 16, 0, chunk->chunkZ * 16));
+                    ourShader.setMat4("model", model);
+                    chunk->render();
+                }
             }
         }
 

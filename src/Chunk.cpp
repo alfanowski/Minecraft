@@ -3,10 +3,22 @@
 #include <iostream>
 
 Chunk::Chunk(int cx, int cz) : chunkX(cx), chunkZ(cz) {
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-    glGenBuffers(1, &EBO);
+}
 
+Chunk::~Chunk() {
+    if (isUploaded) {
+        glDeleteVertexArrays(1, &VAO);
+        glDeleteBuffers(1, &VBO);
+        glDeleteBuffers(1, &EBO);
+    }
+}
+
+void Chunk::generate() {
+    generateTerrain();
+    generateMesh();
+}
+
+void Chunk::generateTerrain() {
     FastNoiseLite noise;
     noise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
     noise.SetFrequency(0.01f);
@@ -34,13 +46,6 @@ Chunk::Chunk(int cx, int cz) : chunkX(cx), chunkZ(cz) {
             }
         }
     }
-    buildMesh();
-}
-
-Chunk::~Chunk() {
-    glDeleteVertexArrays(1, &VAO);
-    glDeleteBuffers(1, &VBO);
-    glDeleteBuffers(1, &EBO);
 }
 
 void Chunk::addFace(int x, int y, int z, std::string faceType, unsigned char blockID) {
@@ -67,75 +72,41 @@ void Chunk::addFace(int x, int y, int z, std::string faceType, unsigned char blo
     float z0 = static_cast<float>(z);
     float z1 = static_cast<float>(z + 1);
 
-    // Definizione vertici rigorosamente CCW (Counter-Clockwise)
-    // Ordine: v0, v1, v2, v3 -> Triangoli: (0,1,2) e (0,2,3)
-
-    if (faceType == "TOP") { // Normale +Y
-        float f[] = {
-            x0, y1, z1, 0.0f, 1.0f, layer, // v0
-            x1, y1, z1, 1.0f, 1.0f, layer, // v1
-            x1, y1, z0, 1.0f, 0.0f, layer, // v2
-            x0, y1, z0, 0.0f, 0.0f, layer  // v3
-        };
+    // Definizione vertici CCW
+    if (faceType == "TOP") {
+        float f[] = { x0, y1, z1, 0.0f, 1.0f, layer, x1, y1, z1, 1.0f, 1.0f, layer, x1, y1, z0, 1.0f, 0.0f, layer, x0, y1, z0, 0.0f, 0.0f, layer };
         vertices.insert(vertices.end(), f, f + 24);
     }
-    else if (faceType == "BOTTOM") { // Normale -Y
-        float f[] = {
-            x0, y0, z0, 0.0f, 0.0f, layer,
-            x1, y0, z0, 1.0f, 0.0f, layer,
-            x1, y0, z1, 1.0f, 1.0f, layer,
-            x0, y0, z1, 0.0f, 1.0f, layer
-        };
+    else if (faceType == "BOTTOM") {
+        float f[] = { x0, y0, z0, 0.0f, 0.0f, layer, x1, y0, z0, 1.0f, 0.0f, layer, x1, y0, z1, 1.0f, 1.0f, layer, x0, y0, z1, 0.0f, 1.0f, layer };
         vertices.insert(vertices.end(), f, f + 24);
     }
-    else if (faceType == "LEFT") { // Normale -X
-        float f[] = {
-            x0, y0, z0, 0.0f, 0.0f, layer, // v0
-            x0, y0, z1, 1.0f, 0.0f, layer, // v1
-            x0, y1, z1, 1.0f, 1.0f, layer, // v2
-            x0, y1, z0, 0.0f, 1.0f, layer  // v3
-        };
+    else if (faceType == "LEFT") {
+        float f[] = { x0, y0, z0, 0.0f, 0.0f, layer, x0, y0, z1, 1.0f, 0.0f, layer, x0, y1, z1, 1.0f, 1.0f, layer, x0, y1, z0, 0.0f, 1.0f, layer };
         vertices.insert(vertices.end(), f, f + 24);
     }
-    else if (faceType == "RIGHT") { // Normale +X
-        float f[] = {
-            x1, y0, z1, 0.0f, 0.0f, layer, // v0
-            x1, y0, z0, 1.0f, 0.0f, layer, // v1
-            x1, y1, z0, 1.0f, 1.0f, layer, // v2
-            x1, y1, z1, 0.0f, 1.0f, layer  // v3
-        };
+    else if (faceType == "RIGHT") {
+        float f[] = { x1, y0, z1, 0.0f, 0.0f, layer, x1, y0, z0, 1.0f, 0.0f, layer, x1, y1, z0, 1.0f, 1.0f, layer, x1, y1, z1, 0.0f, 1.0f, layer };
         vertices.insert(vertices.end(), f, f + 24);
     }
-    else if (faceType == "FRONT") { // Normale +Z
-        float f[] = {
-            x0, y0, z1, 0.0f, 0.0f, layer, // v0
-            x1, y0, z1, 1.0f, 0.0f, layer, // v1
-            x1, y1, z1, 1.0f, 1.0f, layer, // v2
-            x0, y1, z1, 0.0f, 1.0f, layer  // v3
-        };
+    else if (faceType == "FRONT") {
+        float f[] = { x0, y0, z1, 0.0f, 0.0f, layer, x1, y0, z1, 1.0f, 0.0f, layer, x1, y1, z1, 1.0f, 1.0f, layer, x0, y1, z1, 0.0f, 1.0f, layer };
         vertices.insert(vertices.end(), f, f + 24);
     }
-    else if (faceType == "BACK") { // Normale -Z
-        float f[] = {
-            x1, y0, z0, 0.0f, 0.0f, layer, // v0
-            x0, y0, z0, 1.0f, 0.0f, layer, // v1
-            x0, y1, z0, 1.0f, 1.0f, layer, // v2
-            x1, y1, z0, 0.0f, 1.0f, layer  // v3
-        };
+    else if (faceType == "BACK") {
+        float f[] = { x1, y0, z0, 0.0f, 0.0f, layer, x0, y0, z0, 1.0f, 0.0f, layer, x0, y1, z0, 1.0f, 1.0f, layer, x1, y1, z0, 0.0f, 1.0f, layer };
         vertices.insert(vertices.end(), f, f + 24);
     }
 
-    // Indici standard per Quad (0-1-2 e 0-2-3)
     indices.push_back(startIdx + 0);
     indices.push_back(startIdx + 1);
     indices.push_back(startIdx + 2);
-
     indices.push_back(startIdx + 0);
     indices.push_back(startIdx + 2);
     indices.push_back(startIdx + 3);
 }
 
-void Chunk::buildMesh() {
+void Chunk::generateMesh() {
     vertices.clear();
     indices.clear();
 
@@ -154,6 +125,14 @@ void Chunk::buildMesh() {
             }
         }
     }
+}
+
+void Chunk::upload() {
+    if (vertices.empty()) return;
+
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
 
     glBindVertexArray(VAO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
@@ -166,9 +145,35 @@ void Chunk::buildMesh() {
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
+
+    isUploaded = true;
+    indexCount = static_cast<unsigned int>(indices.size());
+
+    vertices.clear();
+    indices.clear();
+    vertices.shrink_to_fit();
+    indices.shrink_to_fit();
+}
+
+// NUOVO: Ricostruisce la mesh e aggiorna la GPU
+void Chunk::rebuild() {
+    // 1. Pulisci vecchi buffer se esistono
+    if (isUploaded) {
+        glDeleteVertexArrays(1, &VAO);
+        glDeleteBuffers(1, &VBO);
+        glDeleteBuffers(1, &EBO);
+        isUploaded = false;
+    }
+
+    // 2. Rigenera mesh (CPU)
+    generateMesh();
+
+    // 3. Carica su GPU
+    upload();
 }
 
 void Chunk::render() const {
+    if (!isUploaded) return;
     glBindVertexArray(VAO);
-    glDrawElements(GL_TRIANGLES, static_cast<unsigned int>(indices.size()), GL_UNSIGNED_INT, 0);
+    glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, 0);
 }
