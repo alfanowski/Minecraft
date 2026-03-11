@@ -183,123 +183,136 @@ void forceLoadInitialChunks() {
     }
 }
 
-void breakBlock() {
-    glm::vec3 rayOrigin = camera.Position;
-    glm::vec3 rayDir = camera.Front;
-    float maxDist = WorldConfig::INTERACTION_RANGE;
-    float step = 0.05f;
+// --- DDA Raycast (Amanatides-Woo) ---
+// Restituisce il blocco colpito e il blocco precedente (per il piazzamento)
+struct RaycastResult {
+    bool hit = false;
+    int x, y, z;           // Blocco colpito
+    int prevX, prevY, prevZ; // Blocco precedente (aria)
+};
 
-    for (float t = 0.0f; t < maxDist; t += step) {
-        glm::vec3 p = rayOrigin + rayDir * t;
-        int x = static_cast<int>(floor(p.x));
-        int y = static_cast<int>(floor(p.y));
-        int z = static_cast<int>(floor(p.z));
+RaycastResult raycast(glm::vec3 origin, glm::vec3 dir, float maxDist) {
+    RaycastResult result;
+
+    // Posizione iniziale nel grid
+    int x = static_cast<int>(floor(origin.x));
+    int y = static_cast<int>(floor(origin.y));
+    int z = static_cast<int>(floor(origin.z));
+
+    // Direzione di step (+1 o -1) per ogni asse
+    int stepX = (dir.x >= 0) ? 1 : -1;
+    int stepY = (dir.y >= 0) ? 1 : -1;
+    int stepZ = (dir.z >= 0) ? 1 : -1;
+
+    // Distanza t per attraversare una cella intera per asse
+    float tDeltaX = (dir.x != 0.0f) ? std::abs(1.0f / dir.x) : 1e30f;
+    float tDeltaY = (dir.y != 0.0f) ? std::abs(1.0f / dir.y) : 1e30f;
+    float tDeltaZ = (dir.z != 0.0f) ? std::abs(1.0f / dir.z) : 1e30f;
+
+    // Distanza t al prossimo bordo di cella
+    float tMaxX = (dir.x != 0.0f) ? ((dir.x > 0 ? (x + 1.0f - origin.x) : (origin.x - x)) * tDeltaX) : 1e30f;
+    float tMaxY = (dir.y != 0.0f) ? ((dir.y > 0 ? (y + 1.0f - origin.y) : (origin.y - y)) * tDeltaY) : 1e30f;
+    float tMaxZ = (dir.z != 0.0f) ? ((dir.z > 0 ? (z + 1.0f - origin.z) : (origin.z - z)) * tDeltaZ) : 1e30f;
+
+    result.prevX = x; result.prevY = y; result.prevZ = z;
+
+    float t = 0.0f;
+    while (t < maxDist) {
+        // Controlla blocco corrente
         int chunkX = static_cast<int>(floor(x / 16.0f));
         int chunkZ = static_cast<int>(floor(z / 16.0f));
-        long long key = chunkHash(chunkX, chunkZ);
-        auto it = worldChunks.find(key);
+        auto it = worldChunks.find(chunkHash(chunkX, chunkZ));
 
-        if (it != worldChunks.end()) {
+        if (it != worldChunks.end() && y >= 0 && y < Chunk::HEIGHT) {
             int localX = x % 16; if (localX < 0) localX += 16;
             int localZ = z % 16; if (localZ < 0) localZ += 16;
-            if (y >= 0 && y < Chunk::HEIGHT) {
-                if (it->second->blocks[localX][y][localZ] != BlockType::AIR) {
-                    it->second->blocks[localX][y][localZ] = BlockType::AIR;
+            if (it->second->blocks[localX][y][localZ] != BlockType::AIR) {
+                result.hit = true;
+                result.x = x; result.y = y; result.z = z;
+                return result;
+            }
+        }
 
-                    it->second->rebuild(getNeighbors(chunkX, chunkZ));
-                    // Se il blocco è al bordo, ricostruisci anche il chunk adiacente
-                    if (localX == 0) { auto n = worldChunks.find(chunkHash(chunkX-1, chunkZ)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(chunkX-1, chunkZ)); }
-                    if (localX == 15) { auto n = worldChunks.find(chunkHash(chunkX+1, chunkZ)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(chunkX+1, chunkZ)); }
-                    if (localZ == 0) { auto n = worldChunks.find(chunkHash(chunkX, chunkZ-1)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(chunkX, chunkZ-1)); }
-                    if (localZ == 15) { auto n = worldChunks.find(chunkHash(chunkX, chunkZ+1)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(chunkX, chunkZ+1)); }
-                    return;
-                }
+        // Salva posizione precedente
+        result.prevX = x; result.prevY = y; result.prevZ = z;
+
+        // Avanza al prossimo bordo di cella
+        if (tMaxX < tMaxY) {
+            if (tMaxX < tMaxZ) {
+                t = tMaxX; x += stepX; tMaxX += tDeltaX;
+            } else {
+                t = tMaxZ; z += stepZ; tMaxZ += tDeltaZ;
+            }
+        } else {
+            if (tMaxY < tMaxZ) {
+                t = tMaxY; y += stepY; tMaxY += tDeltaY;
+            } else {
+                t = tMaxZ; z += stepZ; tMaxZ += tDeltaZ;
             }
         }
     }
+    return result;
+}
+
+// Helper: ricostruisci chunk e adiacenti al bordo dopo modifica blocco
+void rebuildChunkAndBorders(int blockX, int blockY, int blockZ) {
+    int chunkX = static_cast<int>(floor(blockX / 16.0f));
+    int chunkZ = static_cast<int>(floor(blockZ / 16.0f));
+    int localX = blockX % 16; if (localX < 0) localX += 16;
+    int localZ = blockZ % 16; if (localZ < 0) localZ += 16;
+
+    auto it = worldChunks.find(chunkHash(chunkX, chunkZ));
+    if (it != worldChunks.end())
+        it->second->rebuild(getNeighbors(chunkX, chunkZ));
+
+    if (localX == 0) { auto n = worldChunks.find(chunkHash(chunkX-1, chunkZ)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(chunkX-1, chunkZ)); }
+    if (localX == 15) { auto n = worldChunks.find(chunkHash(chunkX+1, chunkZ)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(chunkX+1, chunkZ)); }
+    if (localZ == 0) { auto n = worldChunks.find(chunkHash(chunkX, chunkZ-1)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(chunkX, chunkZ-1)); }
+    if (localZ == 15) { auto n = worldChunks.find(chunkHash(chunkX, chunkZ+1)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(chunkX, chunkZ+1)); }
+}
+
+void breakBlock() {
+    auto result = raycast(camera.Position, camera.Front, WorldConfig::INTERACTION_RANGE);
+    if (!result.hit) return;
+
+    int chunkX = static_cast<int>(floor(result.x / 16.0f));
+    int chunkZ = static_cast<int>(floor(result.z / 16.0f));
+    auto it = worldChunks.find(chunkHash(chunkX, chunkZ));
+    if (it == worldChunks.end()) return;
+
+    int localX = result.x % 16; if (localX < 0) localX += 16;
+    int localZ = result.z % 16; if (localZ < 0) localZ += 16;
+
+    it->second->blocks[localX][result.y][localZ] = BlockType::AIR;
+    rebuildChunkAndBorders(result.x, result.y, result.z);
 }
 
 void placeBlock() {
-    glm::vec3 rayOrigin = camera.Position;
-    glm::vec3 rayDir = camera.Front;
-    float maxDist = WorldConfig::INTERACTION_RANGE;
-    float step = 0.05f;
+    auto result = raycast(camera.Position, camera.Front, WorldConfig::INTERACTION_RANGE);
+    if (!result.hit) return;
 
-    int prevX = -1, prevY = -1, prevZ = -1;
+    int px = result.prevX, py = result.prevY, pz = result.prevZ;
 
-    for (float t = 0.0f; t < maxDist; t += step) {
-        glm::vec3 p = rayOrigin + rayDir * t;
-        int x = static_cast<int>(floor(p.x));
-        int y = static_cast<int>(floor(p.y));
-        int z = static_cast<int>(floor(p.z));
+    // Collision check con il giocatore
+    float hw = camera.width / 2.0f;
+    float pMinX = camera.Position.x - hw, pMaxX = camera.Position.x + hw;
+    float pMinY = camera.Position.y - camera.eyeHeight, pMaxY = camera.Position.y + (camera.height - camera.eyeHeight);
+    float pMinZ = camera.Position.z - hw, pMaxZ = camera.Position.z + hw;
 
-        if (prevX == -1) {
-            prevX = x; prevY = y; prevZ = z;
-            continue;
-        }
+    if (pMinX < px + 1.0f && pMaxX > px && pMinY < py + 1.0f && pMaxY > py && pMinZ < pz + 1.0f && pMaxZ > pz)
+        return;
 
-        int chunkX = static_cast<int>(floor(x / 16.0f));
-        int chunkZ = static_cast<int>(floor(z / 16.0f));
-        long long key = chunkHash(chunkX, chunkZ);
-        auto it = worldChunks.find(key);
+    int chunkX = static_cast<int>(floor(px / 16.0f));
+    int chunkZ = static_cast<int>(floor(pz / 16.0f));
+    auto it = worldChunks.find(chunkHash(chunkX, chunkZ));
+    if (it == worldChunks.end()) return;
 
-        if (it != worldChunks.end()) {
-            int localX = x % 16; if (localX < 0) localX += 16;
-            int localZ = z % 16; if (localZ < 0) localZ += 16;
+    int localX = px % 16; if (localX < 0) localX += 16;
+    int localZ = pz % 16; if (localZ < 0) localZ += 16;
 
-            if (y >= 0 && y < Chunk::HEIGHT) {
-                if (it->second->blocks[localX][y][localZ] != BlockType::AIR) {
-                    // Collision check with player
-                    float playerMinX = camera.Position.x - camera.width / 2.0f;
-                    float playerMaxX = camera.Position.x + camera.width / 2.0f;
-                    float playerMinY = camera.Position.y - camera.eyeHeight;
-                    float playerMaxY = camera.Position.y + (camera.height - camera.eyeHeight);
-                    float playerMinZ = camera.Position.z - camera.width / 2.0f;
-                    float playerMaxZ = camera.Position.z + camera.width / 2.0f;
-
-                    float blockMinX = static_cast<float>(prevX);
-                    float blockMaxX = static_cast<float>(prevX) + 1.0f;
-                    float blockMinY = static_cast<float>(prevY);
-                    float blockMaxY = static_cast<float>(prevY) + 1.0f;
-                    float blockMinZ = static_cast<float>(prevZ);
-                    float blockMaxZ = static_cast<float>(prevZ) + 1.0f;
-
-                    bool collisionX = playerMinX < blockMaxX && playerMaxX > blockMinX;
-                    bool collisionY = playerMinY < blockMaxY && playerMaxY > blockMinY;
-                    bool collisionZ = playerMinZ < blockMaxZ && playerMaxZ > blockMinZ;
-
-                    if (collisionX && collisionY && collisionZ) {
-                        return; // Cannot place block inside player
-                    }
-
-                    // Place block
-                    int prevChunkX = static_cast<int>(floor(prevX / 16.0f));
-                    int prevChunkZ = static_cast<int>(floor(prevZ / 16.0f));
-                    long long prevKey = chunkHash(prevChunkX, prevChunkZ);
-                    auto prevIt = worldChunks.find(prevKey);
-
-                    if (prevIt != worldChunks.end()) {
-                        int prevLocalX = prevX % 16; if (prevLocalX < 0) prevLocalX += 16;
-                        int prevLocalZ = prevZ % 16; if (prevLocalZ < 0) prevLocalZ += 16;
-
-                        if (prevY >= 0 && prevY < Chunk::HEIGHT) {
-                            prevIt->second->blocks[prevLocalX][prevY][prevLocalZ] = BlockType::STONE;
-                            prevIt->second->rebuild(getNeighbors(prevChunkX, prevChunkZ));
-                            // Ricostruisci chunk adiacenti se al bordo
-                            if (prevLocalX == 0) { auto n = worldChunks.find(chunkHash(prevChunkX-1, prevChunkZ)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(prevChunkX-1, prevChunkZ)); }
-                            if (prevLocalX == 15) { auto n = worldChunks.find(chunkHash(prevChunkX+1, prevChunkZ)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(prevChunkX+1, prevChunkZ)); }
-                            if (prevLocalZ == 0) { auto n = worldChunks.find(chunkHash(prevChunkX, prevChunkZ-1)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(prevChunkX, prevChunkZ-1)); }
-                            if (prevLocalZ == 15) { auto n = worldChunks.find(chunkHash(prevChunkX, prevChunkZ+1)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(prevChunkX, prevChunkZ+1)); }
-                        }
-                    }
-                    return;
-                }
-            }
-        }
-
-        prevX = x;
-        prevY = y;
-        prevZ = z;
+    if (py >= 0 && py < Chunk::HEIGHT) {
+        it->second->blocks[localX][py][localZ] = BlockType::STONE;
+        rebuildChunkAndBorders(px, py, pz);
     }
 }
 
