@@ -64,7 +64,15 @@ void Chunk::addFace(int x, int y, int z, std::string faceType, unsigned char blo
         layer = TextureLayer::BEDROCK;
     }
 
-    const auto startIdx = static_cast<unsigned int>(vertices.size() / 6);
+    // Luminosità per faccia (simula luce direzionale dall'alto)
+    float brightness = 0.8f; // default laterali
+    if (faceType == "TOP")         brightness = 1.0f;
+    else if (faceType == "BOTTOM") brightness = 0.5f;
+    else if (faceType == "FRONT" || faceType == "BACK") brightness = 0.7f;
+    else /* LEFT, RIGHT */         brightness = 0.8f;
+
+    // Stride: 7 floats per vertice (pos3 + tex3 + brightness1)
+    const auto startIdx = static_cast<unsigned int>(vertices.size() / 7);
 
     float x0 = static_cast<float>(x);
     float x1 = static_cast<float>(x + 1);
@@ -72,31 +80,31 @@ void Chunk::addFace(int x, int y, int z, std::string faceType, unsigned char blo
     float y1 = static_cast<float>(y + 1);
     float z0 = static_cast<float>(z);
     float z1 = static_cast<float>(z + 1);
+    float b = brightness;
 
-    // Definizione vertici CCW
     if (faceType == "TOP") {
-        float f[] = { x0, y1, z1, 0.0f, 1.0f, layer, x1, y1, z1, 1.0f, 1.0f, layer, x1, y1, z0, 1.0f, 0.0f, layer, x0, y1, z0, 0.0f, 0.0f, layer };
-        vertices.insert(vertices.end(), f, f + 24);
+        float f[] = { x0,y1,z1, 0,1,layer,b, x1,y1,z1, 1,1,layer,b, x1,y1,z0, 1,0,layer,b, x0,y1,z0, 0,0,layer,b };
+        vertices.insert(vertices.end(), f, f + 28);
     }
     else if (faceType == "BOTTOM") {
-        float f[] = { x0, y0, z0, 0.0f, 0.0f, layer, x1, y0, z0, 1.0f, 0.0f, layer, x1, y0, z1, 1.0f, 1.0f, layer, x0, y0, z1, 0.0f, 1.0f, layer };
-        vertices.insert(vertices.end(), f, f + 24);
+        float f[] = { x0,y0,z0, 0,0,layer,b, x1,y0,z0, 1,0,layer,b, x1,y0,z1, 1,1,layer,b, x0,y0,z1, 0,1,layer,b };
+        vertices.insert(vertices.end(), f, f + 28);
     }
     else if (faceType == "LEFT") {
-        float f[] = { x0, y0, z0, 0.0f, 0.0f, layer, x0, y0, z1, 1.0f, 0.0f, layer, x0, y1, z1, 1.0f, 1.0f, layer, x0, y1, z0, 0.0f, 1.0f, layer };
-        vertices.insert(vertices.end(), f, f + 24);
+        float f[] = { x0,y0,z0, 0,0,layer,b, x0,y0,z1, 1,0,layer,b, x0,y1,z1, 1,1,layer,b, x0,y1,z0, 0,1,layer,b };
+        vertices.insert(vertices.end(), f, f + 28);
     }
     else if (faceType == "RIGHT") {
-        float f[] = { x1, y0, z1, 0.0f, 0.0f, layer, x1, y0, z0, 1.0f, 0.0f, layer, x1, y1, z0, 1.0f, 1.0f, layer, x1, y1, z1, 0.0f, 1.0f, layer };
-        vertices.insert(vertices.end(), f, f + 24);
+        float f[] = { x1,y0,z1, 0,0,layer,b, x1,y0,z0, 1,0,layer,b, x1,y1,z0, 1,1,layer,b, x1,y1,z1, 0,1,layer,b };
+        vertices.insert(vertices.end(), f, f + 28);
     }
     else if (faceType == "FRONT") {
-        float f[] = { x0, y0, z1, 0.0f, 0.0f, layer, x1, y0, z1, 1.0f, 0.0f, layer, x1, y1, z1, 1.0f, 1.0f, layer, x0, y1, z1, 0.0f, 1.0f, layer };
-        vertices.insert(vertices.end(), f, f + 24);
+        float f[] = { x0,y0,z1, 0,0,layer,b, x1,y0,z1, 1,0,layer,b, x1,y1,z1, 1,1,layer,b, x0,y1,z1, 0,1,layer,b };
+        vertices.insert(vertices.end(), f, f + 28);
     }
     else if (faceType == "BACK") {
-        float f[] = { x1, y0, z0, 0.0f, 0.0f, layer, x0, y0, z0, 1.0f, 0.0f, layer, x0, y1, z0, 1.0f, 1.0f, layer, x1, y1, z0, 0.0f, 1.0f, layer };
-        vertices.insert(vertices.end(), f, f + 24);
+        float f[] = { x1,y0,z0, 0,0,layer,b, x0,y0,z0, 1,0,layer,b, x0,y1,z0, 1,1,layer,b, x1,y1,z0, 0,1,layer,b };
+        vertices.insert(vertices.end(), f, f + 28);
     }
 
     indices.push_back(startIdx + 0);
@@ -164,10 +172,13 @@ void Chunk::upload() {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
 
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    int stride = 7 * sizeof(float);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*)0);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, stride, (void*)(6 * sizeof(float)));
+    glEnableVertexAttribArray(2);
 
     isUploaded = true;
     indexCount = static_cast<unsigned int>(indices.size());
