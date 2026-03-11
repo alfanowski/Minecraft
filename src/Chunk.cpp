@@ -201,6 +201,22 @@ void Chunk::rebuild(const ChunkNeighbors& neighbors) {
     upload();
 }
 
+void Chunk::rebuildMeshOnly(const ChunkNeighbors& neighbors) {
+    generateMesh(neighbors);
+    needsReupload = true;
+}
+
+void Chunk::reupload() {
+    if (isUploaded) {
+        glDeleteVertexArrays(1, &VAO);
+        glDeleteBuffers(1, &VBO);
+        glDeleteBuffers(1, &EBO);
+        isUploaded = false;
+    }
+    upload();
+    needsReupload = false;
+}
+
 void Chunk::render() const {
     if (!isUploaded) return;
     glBindVertexArray(VAO);

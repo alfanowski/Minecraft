@@ -31,6 +31,13 @@ std::list<PendingChunk> generationQueue;
 std::unordered_set<long long> queuedKeys; // O(1) lookup per evitare duplicati
 std::vector<Chunk*> uploadQueue;
 
+// Coda per rebuild asincroni (break/place blocchi)
+struct PendingRebuild {
+    std::vector<Chunk*> chunks;
+    std::future<void> task;
+};
+std::list<PendingRebuild> rebuildQueue;
+
 float lastX = 640.0f, lastY = 360.0f;
 bool firstMouse = true;
 float deltaTime = 0.0f;
@@ -150,8 +157,19 @@ void updateChunks() {
     for (int i = 0; i < WorldConfig::UPLOADS_PER_FRAME && !uploadQueue.empty(); i++) {
         Chunk* chunk = uploadQueue.back();
         uploadQueue.pop_back();
-        // Ricostruisci mesh con dati dei vicini per eliminare seams
         chunk->rebuild(getNeighbors(chunk->chunkX, chunk->chunkZ));
+    }
+
+    // Processa rebuild asincroni completati (GPU upload)
+    for (auto it = rebuildQueue.begin(); it != rebuildQueue.end(); ) {
+        if (it->task.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            for (Chunk* chunk : it->chunks) {
+                if (chunk->needsReupload) chunk->reupload();
+            }
+            it = rebuildQueue.erase(it);
+        } else {
+            ++it;
+        }
     }
 
     for (auto it = worldChunks.begin(); it != worldChunks.end(); ) {
@@ -268,14 +286,33 @@ void rebuildChunkAndBorders(int blockX, int blockY, int blockZ) {
     int localX = blockX % 16; if (localX < 0) localX += 16;
     int localZ = blockZ % 16; if (localZ < 0) localZ += 16;
 
-    auto it = worldChunks.find(chunkHash(chunkX, chunkZ));
-    if (it != worldChunks.end())
-        it->second->rebuild(getNeighbors(chunkX, chunkZ));
+    // Raccogli i chunk da ricostruire e i loro vicini
+    struct RebuildInfo { Chunk* chunk; ChunkNeighbors neighbors; };
+    std::vector<RebuildInfo> toRebuild;
 
-    if (localX == 0) { auto n = worldChunks.find(chunkHash(chunkX-1, chunkZ)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(chunkX-1, chunkZ)); }
-    if (localX == 15) { auto n = worldChunks.find(chunkHash(chunkX+1, chunkZ)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(chunkX+1, chunkZ)); }
-    if (localZ == 0) { auto n = worldChunks.find(chunkHash(chunkX, chunkZ-1)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(chunkX, chunkZ-1)); }
-    if (localZ == 15) { auto n = worldChunks.find(chunkHash(chunkX, chunkZ+1)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(chunkX, chunkZ+1)); }
+    auto addIfExists = [&](int cx, int cz) {
+        auto it = worldChunks.find(chunkHash(cx, cz));
+        if (it != worldChunks.end())
+            toRebuild.push_back({it->second.get(), getNeighbors(cx, cz)});
+    };
+
+    addIfExists(chunkX, chunkZ);
+    if (localX == 0) addIfExists(chunkX-1, chunkZ);
+    if (localX == 15) addIfExists(chunkX+1, chunkZ);
+    if (localZ == 0) addIfExists(chunkX, chunkZ-1);
+    if (localZ == 15) addIfExists(chunkX, chunkZ+1);
+
+    // Lancia mesh generation asincrona
+    std::vector<Chunk*> chunks;
+    for (auto& ri : toRebuild) chunks.push_back(ri.chunk);
+
+    rebuildQueue.push_back({
+        chunks,
+        std::async(std::launch::async, [toRebuild = std::move(toRebuild)]() {
+            for (auto& ri : toRebuild)
+                ri.chunk->rebuildMeshOnly(ri.neighbors);
+        })
+    });
 }
 
 void breakBlock() {

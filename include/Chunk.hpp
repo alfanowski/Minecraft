@@ -69,6 +69,7 @@ public:
 
     int chunkX, chunkZ;
     bool isUploaded = false;
+    bool needsReupload = false; // Mesh rigenerata, pronta per upload GPU
     unsigned int indexCount = 0;
 
     Chunk(int chunkX, int chunkZ);
@@ -77,9 +78,11 @@ public:
     void generate();
     void generateTerrain();
     void upload();
+    void reupload(); // Ricarica su GPU (cancella vecchi buffer + upload)
     void render() const;
 
     void rebuild(const ChunkNeighbors& neighbors = {});
+    void rebuildMeshOnly(const ChunkNeighbors& neighbors = {}); // Solo CPU, thread-safe
 
     glm::vec3 getMin() const { return glm::vec3(chunkX * SIZE, 0, chunkZ * SIZE); }
     glm::vec3 getMax() const { return glm::vec3((chunkX + 1) * SIZE, HEIGHT, (chunkZ + 1) * SIZE); }
