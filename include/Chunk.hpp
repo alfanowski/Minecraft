@@ -50,6 +50,16 @@ inline long long chunkHash(int x, int z) {
     return (static_cast<long long>(x) << 32) | (static_cast<unsigned int>(z));
 }
 
+class Chunk;
+
+// Puntatori ai chunk adiacenti per il cross-boundary face culling
+struct ChunkNeighbors {
+    const Chunk* left   = nullptr; // x-1
+    const Chunk* right  = nullptr; // x+1
+    const Chunk* front  = nullptr; // z+1
+    const Chunk* back   = nullptr; // z-1
+};
+
 class Chunk {
 public:
     static const int SIZE = 16;
@@ -65,10 +75,11 @@ public:
     ~Chunk();
 
     void generate();
+    void generateTerrain();
     void upload();
     void render() const;
 
-    void rebuild();
+    void rebuild(const ChunkNeighbors& neighbors = {});
 
     glm::vec3 getMin() const { return glm::vec3(chunkX * SIZE, 0, chunkZ * SIZE); }
     glm::vec3 getMax() const { return glm::vec3((chunkX + 1) * SIZE, HEIGHT, (chunkZ + 1) * SIZE); }
@@ -79,8 +90,7 @@ private:
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
 
-    void generateTerrain();
-    void generateMesh();
+    void generateMesh(const ChunkNeighbors& neighbors = {});
     void addFace(int x, int y, int z, std::string faceType, unsigned char blockID);
 };
 

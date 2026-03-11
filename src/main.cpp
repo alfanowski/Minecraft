@@ -88,6 +88,20 @@ void drawCrosshair() {
     glDrawArrays(GL_LINES, 0, 4);
 }
 
+// --- HELPER: costruisce i vicini di un chunk ---
+ChunkNeighbors getNeighbors(int cx, int cz) {
+    ChunkNeighbors n;
+    auto it = worldChunks.find(chunkHash(cx - 1, cz));
+    if (it != worldChunks.end()) n.left = it->second.get();
+    it = worldChunks.find(chunkHash(cx + 1, cz));
+    if (it != worldChunks.end()) n.right = it->second.get();
+    it = worldChunks.find(chunkHash(cx, cz + 1));
+    if (it != worldChunks.end()) n.front = it->second.get();
+    it = worldChunks.find(chunkHash(cx, cz - 1));
+    if (it != worldChunks.end()) n.back = it->second.get();
+    return n;
+}
+
 // --- GESTIONE MONDO ASINCRONA ---
 void updateChunks() {
     int playerChunkX = static_cast<int>(floor(camera.Position.x / 16.0f));
@@ -129,7 +143,8 @@ void updateChunks() {
     for (int i = 0; i < WorldConfig::UPLOADS_PER_FRAME && !uploadQueue.empty(); i++) {
         Chunk* chunk = uploadQueue.back();
         uploadQueue.pop_back();
-        chunk->upload();
+        // Ricostruisci mesh con dati dei vicini per eliminare seams
+        chunk->rebuild(getNeighbors(chunk->chunkX, chunk->chunkZ));
     }
 
     for (auto it = worldChunks.begin(); it != worldChunks.end(); ) {
@@ -149,14 +164,21 @@ void forceLoadInitialChunks() {
     int playerChunkZ = static_cast<int>(floor(camera.Position.z / 16.0f));
     int initialRadius = WorldConfig::INITIAL_LOAD_RADIUS;
 
+    // Prima genera tutto il terreno
     for (int x = playerChunkX - initialRadius; x <= playerChunkX + initialRadius; x++) {
         for (int z = playerChunkZ - initialRadius; z <= playerChunkZ + initialRadius; z++) {
             long long key = chunkHash(x, z);
             if (worldChunks.find(key) == worldChunks.end()) {
                 worldChunks[key] = std::make_unique<Chunk>(x, z);
-                worldChunks[key]->generate();
-                worldChunks[key]->upload();
+                worldChunks[key]->generateTerrain();
             }
+        }
+    }
+    // Poi costruisci mesh con vicini disponibili e carica su GPU
+    for (int x = playerChunkX - initialRadius; x <= playerChunkX + initialRadius; x++) {
+        for (int z = playerChunkZ - initialRadius; z <= playerChunkZ + initialRadius; z++) {
+            long long key = chunkHash(x, z);
+            worldChunks[key]->rebuild(getNeighbors(x, z));
         }
     }
 }
@@ -184,7 +206,12 @@ void breakBlock() {
                 if (it->second->blocks[localX][y][localZ] != BlockType::AIR) {
                     it->second->blocks[localX][y][localZ] = BlockType::AIR;
 
-                    it->second->rebuild();
+                    it->second->rebuild(getNeighbors(chunkX, chunkZ));
+                    // Se il blocco è al bordo, ricostruisci anche il chunk adiacente
+                    if (localX == 0) { auto n = worldChunks.find(chunkHash(chunkX-1, chunkZ)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(chunkX-1, chunkZ)); }
+                    if (localX == 15) { auto n = worldChunks.find(chunkHash(chunkX+1, chunkZ)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(chunkX+1, chunkZ)); }
+                    if (localZ == 0) { auto n = worldChunks.find(chunkHash(chunkX, chunkZ-1)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(chunkX, chunkZ-1)); }
+                    if (localZ == 15) { auto n = worldChunks.find(chunkHash(chunkX, chunkZ+1)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(chunkX, chunkZ+1)); }
                     return;
                 }
             }
@@ -257,7 +284,12 @@ void placeBlock() {
 
                         if (prevY >= 0 && prevY < Chunk::HEIGHT) {
                             prevIt->second->blocks[prevLocalX][prevY][prevLocalZ] = BlockType::STONE;
-                            prevIt->second->rebuild();
+                            prevIt->second->rebuild(getNeighbors(prevChunkX, prevChunkZ));
+                            // Ricostruisci chunk adiacenti se al bordo
+                            if (prevLocalX == 0) { auto n = worldChunks.find(chunkHash(prevChunkX-1, prevChunkZ)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(prevChunkX-1, prevChunkZ)); }
+                            if (prevLocalX == 15) { auto n = worldChunks.find(chunkHash(prevChunkX+1, prevChunkZ)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(prevChunkX+1, prevChunkZ)); }
+                            if (prevLocalZ == 0) { auto n = worldChunks.find(chunkHash(prevChunkX, prevChunkZ-1)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(prevChunkX, prevChunkZ-1)); }
+                            if (prevLocalZ == 15) { auto n = worldChunks.find(chunkHash(prevChunkX, prevChunkZ+1)); if (n != worldChunks.end()) n->second->rebuild(getNeighbors(prevChunkX, prevChunkZ+1)); }
                         }
                     }
                     return;

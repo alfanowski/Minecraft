@@ -107,9 +107,31 @@ void Chunk::addFace(int x, int y, int z, std::string faceType, unsigned char blo
     indices.push_back(startIdx + 3);
 }
 
-void Chunk::generateMesh() {
+void Chunk::generateMesh(const ChunkNeighbors& neighbors) {
     vertices.clear();
     indices.clear();
+
+    // Helper: controlla se il blocco adiacente è aria, anche cross-chunk
+    auto isAir = [&](int x, int y, int z) -> bool {
+        if (y < 0 || y >= HEIGHT) return true;
+
+        // Dentro il chunk corrente
+        if (x >= 0 && x < SIZE && z >= 0 && z < SIZE)
+            return blocks[x][y][z] == BlockType::AIR;
+
+        // Cross-boundary: controlla chunk adiacente
+        if (x < 0 && neighbors.left)
+            return neighbors.left->blocks[SIZE - 1][y][z] == BlockType::AIR;
+        if (x >= SIZE && neighbors.right)
+            return neighbors.right->blocks[0][y][z] == BlockType::AIR;
+        if (z < 0 && neighbors.back)
+            return neighbors.back->blocks[x][y][SIZE - 1] == BlockType::AIR;
+        if (z >= SIZE && neighbors.front)
+            return neighbors.front->blocks[x][y][0] == BlockType::AIR;
+
+        // Nessun vicino caricato: renderizza la faccia (sicuro)
+        return true;
+    };
 
     for (int x = 0; x < SIZE; x++) {
         for (int y = 0; y < HEIGHT; y++) {
@@ -117,12 +139,12 @@ void Chunk::generateMesh() {
                 unsigned char block = blocks[x][y][z];
                 if (block == BlockType::AIR) continue;
 
-                if (y == HEIGHT - 1 || blocks[x][y+1][z] == BlockType::AIR) addFace(x, y, z, "TOP", block);
-                if (y == 0          || blocks[x][y-1][z] == BlockType::AIR) addFace(x, y, z, "BOTTOM", block);
-                if (x == 0          || blocks[x-1][y][z] == BlockType::AIR) addFace(x, y, z, "LEFT", block);
-                if (x == SIZE - 1   || blocks[x+1][y][z] == BlockType::AIR) addFace(x, y, z, "RIGHT", block);
-                if (z == SIZE - 1   || blocks[x][y][z+1] == BlockType::AIR) addFace(x, y, z, "FRONT", block);
-                if (z == 0          || blocks[x][y][z-1] == BlockType::AIR) addFace(x, y, z, "BACK", block);
+                if (isAir(x, y+1, z)) addFace(x, y, z, "TOP", block);
+                if (isAir(x, y-1, z)) addFace(x, y, z, "BOTTOM", block);
+                if (isAir(x-1, y, z)) addFace(x, y, z, "LEFT", block);
+                if (isAir(x+1, y, z)) addFace(x, y, z, "RIGHT", block);
+                if (isAir(x, y, z+1)) addFace(x, y, z, "FRONT", block);
+                if (isAir(x, y, z-1)) addFace(x, y, z, "BACK", block);
             }
         }
     }
@@ -156,9 +178,7 @@ void Chunk::upload() {
     indices.shrink_to_fit();
 }
 
-// NUOVO: Ricostruisce la mesh e aggiorna la GPU
-void Chunk::rebuild() {
-    // 1. Pulisci vecchi buffer se esistono
+void Chunk::rebuild(const ChunkNeighbors& neighbors) {
     if (isUploaded) {
         glDeleteVertexArrays(1, &VAO);
         glDeleteBuffers(1, &VBO);
@@ -166,10 +186,7 @@ void Chunk::rebuild() {
         isUploaded = false;
     }
 
-    // 2. Rigenera mesh (CPU)
-    generateMesh();
-
-    // 3. Carica su GPU
+    generateMesh(neighbors);
     upload();
 }
 
