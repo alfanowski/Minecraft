@@ -34,7 +34,7 @@ bool firstMouse = true;
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
-const int RENDER_DISTANCE = 8;
+// Render distance ora in WorldConfig::RENDER_DISTANCE
 
 // --- SHADER MIRINO ---
 const char* crosshairVS = R"(
@@ -93,8 +93,8 @@ void updateChunks() {
     int playerChunkX = static_cast<int>(floor(camera.Position.x / 16.0f));
     int playerChunkZ = static_cast<int>(floor(camera.Position.z / 16.0f));
 
-    for (int x = playerChunkX - RENDER_DISTANCE; x <= playerChunkX + RENDER_DISTANCE; x++) {
-        for (int z = playerChunkZ - RENDER_DISTANCE; z <= playerChunkZ + RENDER_DISTANCE; z++) {
+    for (int x = playerChunkX - WorldConfig::RENDER_DISTANCE; x <= playerChunkX + WorldConfig::RENDER_DISTANCE; x++) {
+        for (int z = playerChunkZ - WorldConfig::RENDER_DISTANCE; z <= playerChunkZ + WorldConfig::RENDER_DISTANCE; z++) {
             long long key = chunkHash(x, z);
 
             bool alreadyQueued = false;
@@ -126,8 +126,7 @@ void updateChunks() {
         }
     }
 
-    int uploadsPerFrame = 16;
-    for (int i = 0; i < uploadsPerFrame && !uploadQueue.empty(); i++) {
+    for (int i = 0; i < WorldConfig::UPLOADS_PER_FRAME && !uploadQueue.empty(); i++) {
         Chunk* chunk = uploadQueue.back();
         uploadQueue.pop_back();
         chunk->upload();
@@ -136,8 +135,8 @@ void updateChunks() {
     for (auto it = worldChunks.begin(); it != worldChunks.end(); ) {
         int cx = it->second->chunkX;
         int cz = it->second->chunkZ;
-        if (abs(cx - playerChunkX) > RENDER_DISTANCE + 2 ||
-            abs(cz - playerChunkZ) > RENDER_DISTANCE + 2) {
+        if (abs(cx - playerChunkX) > WorldConfig::UNLOAD_DISTANCE ||
+            abs(cz - playerChunkZ) > WorldConfig::UNLOAD_DISTANCE) {
             it = worldChunks.erase(it);
         } else {
             ++it;
@@ -148,7 +147,7 @@ void updateChunks() {
 void forceLoadInitialChunks() {
     int playerChunkX = static_cast<int>(floor(camera.Position.x / 16.0f));
     int playerChunkZ = static_cast<int>(floor(camera.Position.z / 16.0f));
-    int initialRadius = 2;
+    int initialRadius = WorldConfig::INITIAL_LOAD_RADIUS;
 
     for (int x = playerChunkX - initialRadius; x <= playerChunkX + initialRadius; x++) {
         for (int z = playerChunkZ - initialRadius; z <= playerChunkZ + initialRadius; z++) {
@@ -165,7 +164,7 @@ void forceLoadInitialChunks() {
 void breakBlock() {
     glm::vec3 rayOrigin = camera.Position;
     glm::vec3 rayDir = camera.Front;
-    float maxDist = 5.0f;
+    float maxDist = WorldConfig::INTERACTION_RANGE;
     float step = 0.05f;
 
     for (float t = 0.0f; t < maxDist; t += step) {
@@ -182,10 +181,9 @@ void breakBlock() {
             int localX = x % 16; if (localX < 0) localX += 16;
             int localZ = z % 16; if (localZ < 0) localZ += 16;
             if (y >= 0 && y < Chunk::HEIGHT) {
-                if (it->second->blocks[localX][y][localZ] != 0) {
-                    it->second->blocks[localX][y][localZ] = 0;
+                if (it->second->blocks[localX][y][localZ] != BlockType::AIR) {
+                    it->second->blocks[localX][y][localZ] = BlockType::AIR;
 
-                    // FIX: Usa rebuild() per aggiornare correttamente la GPU
                     it->second->rebuild();
                     return;
                 }
@@ -197,7 +195,7 @@ void breakBlock() {
 void placeBlock() {
     glm::vec3 rayOrigin = camera.Position;
     glm::vec3 rayDir = camera.Front;
-    float maxDist = 5.0f;
+    float maxDist = WorldConfig::INTERACTION_RANGE;
     float step = 0.05f;
 
     int prevX = -1, prevY = -1, prevZ = -1;
@@ -223,7 +221,7 @@ void placeBlock() {
             int localZ = z % 16; if (localZ < 0) localZ += 16;
 
             if (y >= 0 && y < Chunk::HEIGHT) {
-                if (it->second->blocks[localX][y][localZ] != 0) {
+                if (it->second->blocks[localX][y][localZ] != BlockType::AIR) {
                     // Collision check with player
                     float playerMinX = camera.Position.x - camera.width / 2.0f;
                     float playerMaxX = camera.Position.x + camera.width / 2.0f;
@@ -258,7 +256,7 @@ void placeBlock() {
                         int prevLocalZ = prevZ % 16; if (prevLocalZ < 0) prevLocalZ += 16;
 
                         if (prevY >= 0 && prevY < Chunk::HEIGHT) {
-                            prevIt->second->blocks[prevLocalX][prevY][prevLocalZ] = 3; // Stone
+                            prevIt->second->blocks[prevLocalX][prevY][prevLocalZ] = BlockType::STONE;
                             prevIt->second->rebuild();
                         }
                     }

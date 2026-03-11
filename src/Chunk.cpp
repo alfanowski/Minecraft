@@ -1,3 +1,4 @@
+#define GL_SILENCE_DEPRECATION
 #include "Chunk.hpp"
 #include "FastNoiseLite.h"
 #include <iostream>
@@ -21,7 +22,7 @@ void Chunk::generate() {
 void Chunk::generateTerrain() {
     FastNoiseLite noise;
     noise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
-    noise.SetFrequency(0.01f);
+    noise.SetFrequency(WorldConfig::NOISE_FREQUENCY);
 
     for (int x = 0; x < SIZE; x++) {
         for (int z = 0; z < SIZE; z++) {
@@ -29,19 +30,19 @@ void Chunk::generateTerrain() {
             float worldZ = static_cast<float>(z + chunkZ * SIZE);
 
             float noiseValue = noise.GetNoise(worldX, worldZ);
-            int terrainHeight = static_cast<int>((noiseValue + 1.0f) * 20.0f + 30.0f);
+            int terrainHeight = static_cast<int>((noiseValue + 1.0f) * WorldConfig::TERRAIN_AMPLITUDE + WorldConfig::TERRAIN_BASE);
 
             for (int y = 0; y < HEIGHT; y++) {
                 if (y == 0) {
-                    blocks[x][y][z] = 4; // Bedrock
+                    blocks[x][y][z] = BlockType::BEDROCK;
                 } else if (y < terrainHeight - 3) {
-                    blocks[x][y][z] = 3; // Pietra
+                    blocks[x][y][z] = BlockType::STONE;
                 } else if (y < terrainHeight) {
-                    blocks[x][y][z] = 2; // Terra
+                    blocks[x][y][z] = BlockType::DIRT;
                 } else if (y == terrainHeight) {
-                    blocks[x][y][z] = 1; // Erba
+                    blocks[x][y][z] = BlockType::GRASS;
                 } else {
-                    blocks[x][y][z] = 0; // Aria
+                    blocks[x][y][z] = BlockType::AIR;
                 }
             }
         }
@@ -51,19 +52,19 @@ void Chunk::generateTerrain() {
 void Chunk::addFace(int x, int y, int z, std::string faceType, unsigned char blockID) {
     float layer = 0.0f;
 
-    if (blockID == 1) { // Erba
-        if (faceType == "TOP") layer = 0.0f;
-        else if (faceType == "BOTTOM") layer = 2.0f;
-        else layer = 1.0f;
-    } else if (blockID == 2) { // Terra
-        layer = 2.0f;
-    } else if (blockID == 3) { // Pietra
-        layer = 3.0f;
-    } else if (blockID == 4) { // Bedrock
-        layer = 4.0f;
+    if (blockID == BlockType::GRASS) {
+        if (faceType == "TOP") layer = TextureLayer::GRASS_TOP;
+        else if (faceType == "BOTTOM") layer = TextureLayer::DIRT;
+        else layer = TextureLayer::GRASS_SIDE;
+    } else if (blockID == BlockType::DIRT) {
+        layer = TextureLayer::DIRT;
+    } else if (blockID == BlockType::STONE) {
+        layer = TextureLayer::STONE;
+    } else if (blockID == BlockType::BEDROCK) {
+        layer = TextureLayer::BEDROCK;
     }
 
-    unsigned int startIdx = static_cast<unsigned int>(vertices.size() / 6);
+    const auto startIdx = static_cast<unsigned int>(vertices.size() / 6);
 
     float x0 = static_cast<float>(x);
     float x1 = static_cast<float>(x + 1);
@@ -114,14 +115,14 @@ void Chunk::generateMesh() {
         for (int y = 0; y < HEIGHT; y++) {
             for (int z = 0; z < SIZE; z++) {
                 unsigned char block = blocks[x][y][z];
-                if (block == 0) continue;
+                if (block == BlockType::AIR) continue;
 
-                if (y == HEIGHT - 1 || blocks[x][y+1][z] == 0) addFace(x, y, z, "TOP", block);
-                if (y == 0          || blocks[x][y-1][z] == 0) addFace(x, y, z, "BOTTOM", block);
-                if (x == 0          || blocks[x-1][y][z] == 0) addFace(x, y, z, "LEFT", block);
-                if (x == SIZE - 1   || blocks[x+1][y][z] == 0) addFace(x, y, z, "RIGHT", block);
-                if (z == SIZE - 1   || blocks[x][y][z+1] == 0) addFace(x, y, z, "FRONT", block);
-                if (z == 0          || blocks[x][y][z-1] == 0) addFace(x, y, z, "BACK", block);
+                if (y == HEIGHT - 1 || blocks[x][y+1][z] == BlockType::AIR) addFace(x, y, z, "TOP", block);
+                if (y == 0          || blocks[x][y-1][z] == BlockType::AIR) addFace(x, y, z, "BOTTOM", block);
+                if (x == 0          || blocks[x-1][y][z] == BlockType::AIR) addFace(x, y, z, "LEFT", block);
+                if (x == SIZE - 1   || blocks[x+1][y][z] == BlockType::AIR) addFace(x, y, z, "RIGHT", block);
+                if (z == SIZE - 1   || blocks[x][y][z+1] == BlockType::AIR) addFace(x, y, z, "FRONT", block);
+                if (z == 0          || blocks[x][y][z-1] == BlockType::AIR) addFace(x, y, z, "BACK", block);
             }
         }
     }

@@ -6,8 +6,7 @@
 #include <unordered_map>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-
-class Chunk;
+#include "Chunk.hpp"
 
 enum Camera_Movement { FORWARD, BACKWARD, LEFT, RIGHT };
 
@@ -38,9 +37,9 @@ class Camera {
 public:
     glm::vec3 Position{};
 
-    float width = 0.5f;
-    float height = 1.8f;
-    float eyeHeight = 1.62f;
+    float width = PlayerConfig::WIDTH;
+    float height = PlayerConfig::HEIGHT;
+    float eyeHeight = PlayerConfig::EYE_HEIGHT;
 
     glm::vec3 Front;
     glm::vec3 Up{};
@@ -55,8 +54,6 @@ public:
 
     float yVelocity = 0.0f;
     bool isGrounded = false;
-    const float GRAVITY = -28.0f;
-    const float JUMP_HEIGHT = 1.2f;
 
     // Frustum della camera
     Frustum frustum;

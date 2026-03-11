@@ -68,7 +68,7 @@ bool Frustum::isBoxVisible(const glm::vec3& min, const glm::vec3& max) const {
 // --- IMPLEMENTAZIONE CAMERA ---
 
 Camera::Camera(glm::vec3 position, glm::vec3 up, float yaw, float pitch)
-    : Front(glm::vec3(0.0f, 0.0f, -1.0f)), MovementSpeed(4.3f), MouseSensitivity(0.1f) {
+    : Front(glm::vec3(0.0f, 0.0f, -1.0f)), MovementSpeed(PlayerConfig::MOVE_SPEED), MouseSensitivity(PlayerConfig::MOUSE_SENS) {
     Position = position;
     WorldUp = up;
     Yaw = yaw;
@@ -154,14 +154,14 @@ void Camera::ProcessKeyboard(Camera_Movement direction, float deltaTime, const s
 
 void Camera::ProcessJump() {
     if (isGrounded) {
-        yVelocity = std::sqrt(2.0f * std::abs(GRAVITY) * JUMP_HEIGHT);
+        yVelocity = std::sqrt(2.0f * std::abs(PlayerConfig::GRAVITY) * PlayerConfig::JUMP_HEIGHT);
         isGrounded = false;
     }
 }
 
 void Camera::UpdatePhysics(float deltaTime, const std::unordered_map<long long, std::unique_ptr<Chunk>>& chunks) {
-    yVelocity += GRAVITY * deltaTime;
-    if (yVelocity < -50.0f) yVelocity = -50.0f;
+    yVelocity += PlayerConfig::GRAVITY * deltaTime;
+    if (yVelocity < PlayerConfig::MAX_FALL_SPEED) yVelocity = PlayerConfig::MAX_FALL_SPEED;
 
     float dy = yVelocity * deltaTime;
     glm::vec3 nextPos = Position;
