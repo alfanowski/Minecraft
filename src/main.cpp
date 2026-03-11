@@ -23,6 +23,7 @@
 Camera camera(glm::vec3(8.0f, 80.0f, 30.0f));
 std::unordered_map<long long, std::unique_ptr<Chunk>> worldChunks;
 ThreadPool chunkThreadPool(std::max(2u, std::thread::hardware_concurrency() - 1));
+const std::string SAVE_DIR = "../world_save";
 
 struct PendingChunk {
     long long key;
@@ -132,11 +133,14 @@ void updateChunks() {
                 worldChunks[key] = std::make_unique<Chunk>(x, z);
                 Chunk* chunkPtr = worldChunks[key].get();
                 queuedKeys.insert(key);
+                std::string saveDir = SAVE_DIR;
 
                 generationQueue.push_back({
                     key, x, z,
-                    chunkThreadPool.submit([chunkPtr]() {
-                        chunkPtr->generate();
+                    chunkThreadPool.submit([chunkPtr, saveDir]() {
+                        // Carica da disco se esiste, altrimenti genera terreno
+                        if (!chunkPtr->loadFromFile(saveDir))
+                            chunkPtr->generateTerrain();
                     })
                 });
             }
@@ -179,6 +183,9 @@ void updateChunks() {
         int cz = it->second->chunkZ;
         if (abs(cx - playerChunkX) > WorldConfig::UNLOAD_DISTANCE ||
             abs(cz - playerChunkZ) > WorldConfig::UNLOAD_DISTANCE) {
+            // Salva chunk modificati su disco prima di rimuoverli
+            if (it->second->modified)
+                it->second->saveToFile(SAVE_DIR);
             it = worldChunks.erase(it);
         } else {
             ++it;
@@ -197,7 +204,8 @@ void forceLoadInitialChunks() {
             long long key = chunkHash(x, z);
             if (worldChunks.find(key) == worldChunks.end()) {
                 worldChunks[key] = std::make_unique<Chunk>(x, z);
-                worldChunks[key]->generateTerrain();
+                if (!worldChunks[key]->loadFromFile(SAVE_DIR))
+                    worldChunks[key]->generateTerrain();
             }
         }
     }
@@ -330,6 +338,7 @@ void breakBlock() {
     int localZ = result.z % 16; if (localZ < 0) localZ += 16;
 
     it->second->blocks[localX][result.y][localZ] = BlockType::AIR;
+    it->second->modified = true;
     rebuildChunkAndBorders(result.x, result.y, result.z);
 }
 
@@ -358,6 +367,7 @@ void placeBlock() {
 
     if (py >= 0 && py < Chunk::HEIGHT) {
         it->second->blocks[localX][py][localZ] = placeableBlocks[selectedBlockIndex];
+        it->second->modified = true;
         rebuildChunkAndBorders(px, py, pz);
     }
 }
@@ -535,6 +545,12 @@ int main() {
 
         glfwSwapBuffers(window);
         glfwPollEvents();
+    }
+
+    // Salva tutti i chunk modificati prima di uscire
+    for (const auto& pair : worldChunks) {
+        if (pair.second->modified)
+            pair.second->saveToFile(SAVE_DIR);
     }
 
     glfwTerminate();

@@ -2,6 +2,8 @@
 #include "Chunk.hpp"
 #include "FastNoiseLite.h"
 #include <iostream>
+#include <fstream>
+#include <filesystem>
 
 Chunk::Chunk(int cx, int cz) : chunkX(cx), chunkZ(cz) {
 }
@@ -16,7 +18,7 @@ Chunk::~Chunk() {
 
 void Chunk::generate() {
     generateTerrain();
-    generateMesh();
+    // generateMesh viene chiamata da rebuild() con i vicini disponibili
 }
 
 void Chunk::generateTerrain() {
@@ -221,4 +223,21 @@ void Chunk::render() const {
     if (!isUploaded) return;
     glBindVertexArray(VAO);
     glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, 0);
+}
+
+bool Chunk::saveToFile(const std::string& worldDir) const {
+    std::filesystem::create_directories(worldDir);
+    std::string path = worldDir + "/chunk_" + std::to_string(chunkX) + "_" + std::to_string(chunkZ) + ".bin";
+    std::ofstream file(path, std::ios::binary);
+    if (!file.is_open()) return false;
+    file.write(reinterpret_cast<const char*>(blocks), sizeof(blocks));
+    return file.good();
+}
+
+bool Chunk::loadFromFile(const std::string& worldDir) {
+    std::string path = worldDir + "/chunk_" + std::to_string(chunkX) + "_" + std::to_string(chunkZ) + ".bin";
+    std::ifstream file(path, std::ios::binary);
+    if (!file.is_open()) return false;
+    file.read(reinterpret_cast<char*>(blocks), sizeof(blocks));
+    return file.good();
 }

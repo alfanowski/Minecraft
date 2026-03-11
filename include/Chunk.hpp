@@ -69,7 +69,8 @@ public:
 
     int chunkX, chunkZ;
     bool isUploaded = false;
-    bool needsReupload = false; // Mesh rigenerata, pronta per upload GPU
+    bool needsReupload = false;
+    bool modified = false; // True se il chunk è stato modificato dal giocatore
     unsigned int indexCount = 0;
 
     Chunk(int chunkX, int chunkZ);
@@ -78,11 +79,15 @@ public:
     void generate();
     void generateTerrain();
     void upload();
-    void reupload(); // Ricarica su GPU (cancella vecchi buffer + upload)
+    void reupload();
     void render() const;
 
     void rebuild(const ChunkNeighbors& neighbors = {});
-    void rebuildMeshOnly(const ChunkNeighbors& neighbors = {}); // Solo CPU, thread-safe
+    void rebuildMeshOnly(const ChunkNeighbors& neighbors = {});
+
+    // Persistenza mondo
+    bool saveToFile(const std::string& worldDir) const;
+    bool loadFromFile(const std::string& worldDir);
 
     glm::vec3 getMin() const { return glm::vec3(chunkX * SIZE, 0, chunkZ * SIZE); }
     glm::vec3 getMax() const { return glm::vec3((chunkX + 1) * SIZE, HEIGHT, (chunkZ + 1) * SIZE); }
