@@ -16,11 +16,13 @@
 #include "Shader.hpp"
 #include "Camera.hpp"
 #include "Chunk.hpp"
+#include "ThreadPool.hpp"
 #include "stb_image.h"
 
 // --- GLOBALI ---
-Camera camera(glm::vec3(8.0f, 80.0f, 30.0f)); // Camera ripristinata
+Camera camera(glm::vec3(8.0f, 80.0f, 30.0f));
 std::unordered_map<long long, std::unique_ptr<Chunk>> worldChunks;
+ThreadPool chunkThreadPool(std::max(2u, std::thread::hardware_concurrency() - 1));
 
 struct PendingChunk {
     long long key;
@@ -133,7 +135,7 @@ void updateChunks() {
 
                 generationQueue.push_back({
                     key, x, z,
-                    std::async(std::launch::async, [chunkPtr]() {
+                    chunkThreadPool.submit([chunkPtr]() {
                         chunkPtr->generate();
                     })
                 });
@@ -308,7 +310,7 @@ void rebuildChunkAndBorders(int blockX, int blockY, int blockZ) {
 
     rebuildQueue.push_back({
         chunks,
-        std::async(std::launch::async, [toRebuild = std::move(toRebuild)]() {
+        chunkThreadPool.submit([toRebuild = std::move(toRebuild)]() {
             for (auto& ri : toRebuild)
                 ri.chunk->rebuildMeshOnly(ri.neighbors);
         })
