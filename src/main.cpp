@@ -36,6 +36,12 @@ bool firstMouse = true;
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
+// Blocco selezionato per il piazzamento
+const unsigned char placeableBlocks[] = { BlockType::GRASS, BlockType::DIRT, BlockType::STONE, BlockType::BEDROCK };
+const char* blockNames[] = { "Grass", "Dirt", "Stone", "Bedrock" };
+const int PLACEABLE_COUNT = 4;
+int selectedBlockIndex = 2; // Default: pietra
+
 // Render distance ora in WorldConfig::RENDER_DISTANCE
 
 // --- SHADER MIRINO ---
@@ -312,7 +318,7 @@ void placeBlock() {
     int localZ = pz % 16; if (localZ < 0) localZ += 16;
 
     if (py >= 0 && py < Chunk::HEIGHT) {
-        it->second->blocks[localX][py][localZ] = BlockType::STONE;
+        it->second->blocks[localX][py][localZ] = placeableBlocks[selectedBlockIndex];
         rebuildChunkAndBorders(px, py, pz);
     }
 }
@@ -335,6 +341,12 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
             placeBlock();
         }
     }
+}
+
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
+    selectedBlockIndex -= static_cast<int>(yoffset);
+    if (selectedBlockIndex < 0) selectedBlockIndex = PLACEABLE_COUNT - 1;
+    if (selectedBlockIndex >= PLACEABLE_COUNT) selectedBlockIndex = 0;
 }
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
@@ -411,6 +423,7 @@ int main() {
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetCursorPosCallback(window, mouse_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
+    glfwSetScrollCallback(window, scroll_callback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     glEnable(GL_DEPTH_TEST);
@@ -439,6 +452,11 @@ int main() {
         updateChunks();
         processInput(window);
         camera.UpdatePhysics(deltaTime, worldChunks);
+
+        // Aggiorna titolo con blocco selezionato e FPS
+        std::string title = "Minecraft Engine - alfanowski | Block: " + std::string(blockNames[selectedBlockIndex])
+                          + " | FPS: " + std::to_string(static_cast<int>(1.0f / deltaTime));
+        glfwSetWindowTitle(window, title.c_str());
 
         glClearColor(0.52f, 0.80f, 0.92f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
