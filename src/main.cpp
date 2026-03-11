@@ -385,7 +385,11 @@ unsigned int loadTextureArray(const std::vector<std::string>& faces) {
         }
     }
 
-    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    // Genera mipmaps per ridurre aliasing a distanza
+    glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
+
+    // NEAREST per vicino (pixel-perfect), mipmap LINEAR per distanza
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
