@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <future>
 #include <list>
+#include <unordered_set>
 #include "Shader.hpp"
 #include "Camera.hpp"
 #include "Chunk.hpp"
@@ -27,6 +28,7 @@ struct PendingChunk {
     std::future<void> task;
 };
 std::list<PendingChunk> generationQueue;
+std::unordered_set<long long> queuedKeys; // O(1) lookup per evitare duplicati
 std::vector<Chunk*> uploadQueue;
 
 float lastX = 640.0f, lastY = 360.0f;
@@ -111,12 +113,10 @@ void updateChunks() {
         for (int z = playerChunkZ - WorldConfig::RENDER_DISTANCE; z <= playerChunkZ + WorldConfig::RENDER_DISTANCE; z++) {
             long long key = chunkHash(x, z);
 
-            bool alreadyQueued = false;
-            for(const auto& pc : generationQueue) { if(pc.key == key) { alreadyQueued = true; break; } }
-
-            if (worldChunks.find(key) == worldChunks.end() && !alreadyQueued) {
+            if (worldChunks.find(key) == worldChunks.end() && queuedKeys.find(key) == queuedKeys.end()) {
                 worldChunks[key] = std::make_unique<Chunk>(x, z);
                 Chunk* chunkPtr = worldChunks[key].get();
+                queuedKeys.insert(key);
 
                 generationQueue.push_back({
                     key, x, z,
@@ -131,6 +131,7 @@ void updateChunks() {
     for (auto it = generationQueue.begin(); it != generationQueue.end(); ) {
         if (it->task.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
             long long key = it->key;
+            queuedKeys.erase(key);
             if (worldChunks.find(key) != worldChunks.end()) {
                 uploadQueue.push_back(worldChunks[key].get());
             }
